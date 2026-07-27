@@ -1,6 +1,14 @@
 # TODO
 
-## Current focus
+## Current focus (refonte qualité 2026-07-27)
+- Refonte moteur appliquée (voir LAST_CHANGES 2026-07-27) : modèles ciblés gpt-4o (rédaction + éval), embeddings sémantiques dans le scoring, caps dégraissés (3 caps durs restants), fix dedup dimension, composer document entier en mode optimisé, harness `npm run eval`
+- **PROCHAINE ÉTAPE OBLIGATOIRE** : rejouer le corpus réel avant déploiement
+  1. `npm run eval -- --export` (avec DATABASE_URL)
+  2. renommer les offres exportées (alan, thales, beelix, behaviour, edf, thefork, razer, edtech)
+  3. `npm run eval` (avec OPENAI_API_KEY) et relire les CV générés, pas que les scores
+- Attendu : Thales/Beelix remontent (adjacents sans keywords exacts), plus de `polished < original`, EDF/Behaviour restent bas
+
+## Ancien focus
 - Le score visible est maintenant recable sur une evaluation du CV genere, pas sur `ProfileFrame`
 - Le score visible est un triage; le CV reste le vrai produit
 - Calibration V3 recentree sur `fitMetier + recruiterCredibilityScore + evidenceGrounding`, avec `overstatementRisk` comme frein reel

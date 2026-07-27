@@ -2,6 +2,12 @@ import type OpenAI from "openai";
 import type { Experience, Bullet, Skill } from "@shared/schema";
 
 export const MODEL = "gpt-4o-mini";
+// Rédaction (summary, composer) et évaluation finale : modèle frontière.
+// Parsing / tagging / scoring bullet par bullet restent sur mini (suffisant, moins cher).
+export const WRITER_MODEL = process.env.WRITER_MODEL || "gpt-4o";
+export const EVAL_MODEL = process.env.EVAL_MODEL || "gpt-4o";
+export const EMBEDDING_MODEL = "text-embedding-3-small";
+const WRITER_TEMPERATURE = 0.45;
 const BASE_URL = "https://api.openai.com/v1";
 
 function log(step: string, data?: any) {
@@ -589,7 +595,7 @@ function sanitizeParsedJob(job: ParsedJob): ParsedJob {
     },
   };
 }
-export interface ScoredBullet { bullet: Bullet; experience: Experience; deterministicScore: number; llmScore: number; totalScore: number; matchedTags: string[]; matchedKeywords: string[]; dimension: string; }
+export interface ScoredBullet { bullet: Bullet; experience: Experience; deterministicScore: number; llmScore: number; semanticScore: number; totalScore: number; matchedTags: string[]; matchedKeywords: string[]; dimension: string; embedding?: number[]; }
 export interface ScoredExperience { experience: Experience; score: number; reason: string; matchedAspects: string[]; selectedBullets: ScoredBullet[]; charBudget: number; }
 export interface CompositionPlan { targetTitle: string; summary: string; sections: { experience: Experience; experienceScore: number; experienceReason: string; bullets: ScoredBullet[]; }[]; relevantSkills: string[]; rejectedBullets: { text: string; score: number; reason: string }[]; rejectedExperiences: { title: string; company: string; score: number; reason: string }[]; }
 export interface StructuredCV { name?: string; targetTitle: string; summary: string; experiences: { title: string; company: string; contractType?: string; dates: string; bullets: string[]; description?: string; }[]; skills: string[]; formations: { degree: string; school: string; year?: string }[]; languages: { name: string; level?: string }[]; }
@@ -747,7 +753,70 @@ function deterministicScore(bullet: Bullet, experience: Experience, allKw: strin
   }
   if (tags.length > 0 && !tags.every(t => ["imported","libre","general"].includes(t))) score += 5;
   if (/\d+/.test(bullet.text)) score += 3;
-  return { score: Math.min(70, score), matchedTags: [...new Set(mTags)], matchedKeywords: [...new Set(mKw)] };
+  // Cap 60 (au lieu de 70) : le matching lexical ne doit plus dominer la sélection
+  // face au signal sémantique (LLM 0-60 + embeddings 0-30).
+  return { score: Math.min(60, score), matchedTags: [...new Set(mTags)], matchedKeywords: [...new Set(mKw)] };
+}
+
+// ─── Semantic scoring via embeddings ─────────────────────────────────────────
+function cosineSimilarity(a: number[], b: number[]): number {
+  if (!a?.length || !b?.length || a.length !== b.length) return 0;
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom === 0 ? 0 : dot / denom;
+}
+
+async function embedTexts(texts: string[], openai: OpenAI): Promise<number[][]> {
+  const res = await openai.embeddings.create({ model: EMBEDDING_MODEL, input: texts });
+  // L'API renvoie dans l'ordre des inputs, mais on trie par index par sécurité.
+  return [...res.data].sort((x, y) => x.index - y.index).map(d => d.embedding);
+}
+
+function buildJobFacets(job: ParsedJob): string[] {
+  const facets = [
+    `${job.title} — ${job.domain}`,
+    ...job.intentions,
+    ...job.responsibilities,
+    ...job.roleFrame.workObjects,
+    ...job.roleFrame.deliverables,
+    ...job.roleFrame.decisions,
+  ].map(f => (f || "").trim()).filter(f => f.length >= 8);
+  return uniqueItems(facets).slice(0, 30);
+}
+
+// Similarité cosine max bullet↔facettes de l'offre, remappée sur 0-30 points.
+// En dessous de 0.30 de cosine : bruit, 0 point. Au dessus de 0.72 : plein score.
+function semanticPointsFromSimilarity(sim: number): number {
+  const normalized = Math.max(0, Math.min(1, (sim - 0.30) / (0.72 - 0.30)));
+  return Math.round(normalized * 30);
+}
+
+async function applySemanticScores(scored: ScoredBullet[], job: ParsedJob, openai: OpenAI): Promise<void> {
+  const facets = buildJobFacets(job);
+  if (facets.length === 0 || scored.length === 0) return;
+  const bulletTexts = scored.map(sb => `${sb.experience.title}. ${sb.bullet.text}${(sb.bullet.tags || []).length ? ` (${(sb.bullet.tags || []).join(", ")})` : ""}`);
+  try {
+    const embeddings = await embedTexts([...facets, ...bulletTexts], openai);
+    const facetEmbeddings = embeddings.slice(0, facets.length);
+    const bulletEmbeddings = embeddings.slice(facets.length);
+    for (let i = 0; i < scored.length; i++) {
+      const emb = bulletEmbeddings[i];
+      if (!emb) continue;
+      scored[i].embedding = emb;
+      let best = 0;
+      for (const facetEmb of facetEmbeddings) {
+        const sim = cosineSimilarity(emb, facetEmb);
+        if (sim > best) best = sim;
+      }
+      scored[i].semanticScore = semanticPointsFromSimilarity(best);
+      scored[i].totalScore = scored[i].deterministicScore + scored[i].llmScore + scored[i].semanticScore;
+    }
+    log("semanticScores DONE", { facets: facets.length, bullets: scored.length });
+  } catch (e: any) {
+    // Fallback silencieux : le CV tient sans la composante sémantique.
+    log("semanticScores FAILED (fallback lexical)", e.message);
+  }
 }
 
 export async function hybridScoreAllBullets(parsedJob: ParsedJob, allExps: Experience[], allBullets: Bullet[], openai: OpenAI): Promise<ScoredBullet[]> {
@@ -760,27 +829,33 @@ export async function hybridScoreAllBullets(parsedJob: ParsedJob, allExps: Exper
     const exp = expMap.get(b.experienceId);
     if (!exp) return null;
     const det = deterministicScore(b, exp, allKw, parsedJob.criticalKeywords, parsedJob.intentions);
-    return { bullet: b, experience: exp, deterministicScore: det.score, llmScore: 0, totalScore: det.score, matchedTags: det.matchedTags, matchedKeywords: det.matchedKeywords, dimension: inferDimension((b.tags || []).filter(Boolean)) } as ScoredBullet;
+    return { bullet: b, experience: exp, deterministicScore: det.score, llmScore: 0, semanticScore: 0, totalScore: det.score, matchedTags: det.matchedTags, matchedKeywords: det.matchedKeywords, dimension: inferDimension((b.tags || []).filter(Boolean)) } as ScoredBullet;
   }).filter(Boolean) as ScoredBullet[];
 
-  const toScore = scored.length <= 30 ? scored : [...scored].sort((a, b) => b.deterministicScore - a.deterministicScore).slice(0, 30);
+  // Composante sémantique (embeddings) AVANT le pré-filtre top-N : les bullets
+  // pertinents sans keywords exacts ne sont plus éliminés avant que le LLM les voie.
+  await applySemanticScores(scored, parsedJob, openai);
+
+  const toScore = scored.length <= 60
+    ? scored
+    : [...scored].sort((a, b) => (b.deterministicScore + b.semanticScore) - (a.deterministicScore + a.semanticScore)).slice(0, 60);
   if (toScore.length > 0) {
     const list = toScore.map((sb, i) => `[${i}] (${sb.experience.title} @ ${sb.experience.company}): ${sb.bullet.text}${(sb.bullet.tags||[]).length ? ` [${(sb.bullet.tags||[]).join(",")}]` : ""}`).join("\n");
     try {
       const res = await openai.chat.completions.create({
         model: MODEL,
         messages: [
-          { role: "system", content: `Score each CV bullet 0-50 for relevance to the target job. Consider:
+          { role: "system", content: `Score each CV bullet 0-60 for relevance to the target job. Consider:
 1. Direct skill match 2. Transferable competencies 3. Impact/metrics 4. Seniority alignment
 5. POSITIONING: this is a ${parsedJob.positioning} role. Bullets showing ${parsedJob.positioning === "consultant" ? "accompagnement, structuration, formation, conseil" : parsedJob.positioning === "lead" ? "vision, leadership, strategie" : "delivery, craft, conception"} score HIGHER.
 6. Intent match: the job needs someone who can: ${parsedJob.intentions.slice(0, 5).join("; ")}
 Score generously for bullets matching the SPIRIT of the role.` },
-          { role: "user", content: `Target: "${parsedJob.title}" at "${parsedJob.company}" (${parsedJob.domain})\nRequired: ${parsedJob.requiredSkills.join(", ")}\nResponsibilities: ${parsedJob.responsibilities.slice(0,5).join(", ")}\n\nBullets:\n${list}\n\nReturn JSON: {"scores": [{"index": 0, "score": 0-50}]}` },
+          { role: "user", content: `Target: "${parsedJob.title}" at "${parsedJob.company}" (${parsedJob.domain})\nRequired: ${parsedJob.requiredSkills.join(", ")}\nResponsibilities: ${parsedJob.responsibilities.slice(0,5).join(", ")}\n\nBullets:\n${list}\n\nReturn JSON: {"scores": [{"index": 0, "score": 0-60}]}` },
         ],
         response_format: { type: "json_object" }, temperature: 0,
       });
       const r = JSON.parse(res.choices[0].message.content || "{}");
-      for (const s of (r.scores || [])) { if (s.index >= 0 && s.index < toScore.length) { toScore[s.index].llmScore = Math.min(50, s.score || 0); toScore[s.index].totalScore = toScore[s.index].deterministicScore + toScore[s.index].llmScore; } }
+      for (const s of (r.scores || [])) { if (s.index >= 0 && s.index < toScore.length) { toScore[s.index].llmScore = Math.min(60, s.score || 0); toScore[s.index].totalScore = toScore[s.index].deterministicScore + toScore[s.index].llmScore + toScore[s.index].semanticScore; } }
     } catch (e: any) { log("hybridScore LLM failed", e.message); }
   }
   scored.sort((a, b) => b.totalScore - a.totalScore);
@@ -971,9 +1046,11 @@ function getBulletSelectionSignals(sb: ScoredBullet, job: ParsedJob): {
 // â”€â”€â”€ Step 4: Select & Deduplicate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export function selectBullets(scored: ScoredBullet[], allocs: BudgetAlloc[], job: ParsedJob, options?: SelectBulletsOptions): ScoredExperience[] {
   const strategy = options?.strategy || "faithful";
-  const dimCounts = new Map<string, number>();
   // First pass: select per experience
   const result = allocs.map(alloc => {
+    // Compteur de dimensions PAR EXPÉRIENCE (un compteur global pénalisait les
+    // bullets "craft" des expériences suivantes et laissait des expériences vides).
+    const dimCounts = new Map<string, number>();
     const bullets = scored
       .filter(sb => sb.experience.id === alloc.experience.id)
       .sort((a, b) => {
@@ -1066,13 +1143,21 @@ export function selectBullets(scored: ScoredBullet[], allocs: BudgetAlloc[], job
     }
   }
 
-  // Second pass: cross-experience narrative dedup (Jaccard > 0.45 = too similar)
+  // Second pass: cross-experience narrative dedup.
+  // Cosine embeddings (> 0.88) quand disponible, fallback Jaccard (> 0.45).
   const seenTokens: Set<string>[] = [];
+  const seenEmbeddings: number[][] = [];
   for (const se of result) {
     se.selectedBullets = se.selectedBullets.filter(sb => {
       const tokens = tokenizeNormalized(sb.bullet.text);
-      const tooSimilar = seenTokens.some(prev => jaccardSimilarity(prev, tokens) > 0.45);
-      if (!tooSimilar) seenTokens.push(tokens);
+      const tooSimilarLexical = seenTokens.some(prev => jaccardSimilarity(prev, tokens) > 0.45);
+      const tooSimilarSemantic = !!sb.embedding
+        && seenEmbeddings.some(prev => cosineSimilarity(prev, sb.embedding!) > 0.88);
+      const tooSimilar = tooSimilarLexical || tooSimilarSemantic;
+      if (!tooSimilar) {
+        seenTokens.push(tokens);
+        if (sb.embedding) seenEmbeddings.push(sb.embedding);
+      }
       return !tooSimilar;
     });
   }
@@ -1103,7 +1188,7 @@ export async function buildStructuredCV(job: ParsedJob, selExps: ScoredExperienc
     : "Faithful mode: stay very close to the source profile and keep the framing prudent.";
   if (topExps.length > 0) {
     try {
-      const res = await openai.chat.completions.create({ model: MODEL, messages: [
+      const res = await openai.chat.completions.create({ model: WRITER_MODEL, temperature: WRITER_TEMPERATURE, messages: [
         { role: "system", content: `Write a 2-3 sentence CV summary. Max 45 words, max 300 characters. No first person. ${posGuide[job.positioning]} ${modeGuide} ${job.language === "FR" ? "In French." : "In English."}
 GROUNDING RULES:
 - Only reference companies listed in the experiences below.
@@ -1113,7 +1198,7 @@ GROUNDING RULES:
 - Write in flowing prose only; do NOT use labels like "Competences:" or "Skills:" in the text.
 - Prefer specific, provable claims over generic positioning statements.` },
         { role: "user", content: `Target: "${job.title}" at "${job.company}" (${job.domain})\nMode: ${mode}\nPositioning: ${job.positioning}\n${extras?.profileSummary ? `Bio: ${extras.profileSummary}\n` : ""}Exps: ${topExps.map(se => `${se.experience.title} at ${se.experience.company}`).join(", ")}\nSkills: ${dedupSkills.slice(0,6).join(", ")}\nRequired: ${job.requiredSkills.slice(0,5).join(", ")}\nIntentions: ${job.intentions.slice(0,3).join("; ")}\nProof highlights: ${proofHighlights}` },
-      ], temperature: 0 });
+      ] });
       summary = (res.choices[0].message.content || summary).trim();
     } catch (e: any) {
       log("summary LLM failed - deterministic fallback", e.message);
@@ -1224,7 +1309,7 @@ export async function reformulateBullets(cv: StructuredCV, job: ParsedJob, opena
   const lang = job.language === "FR" ? "Reformule en francais." : "Reformulate in English.";
   const fewshots = REFORMULATION_FEWSHOTS[job.positioning] || REFORMULATION_FEWSHOTS.ic;
   try {
-    const res = await openai.chat.completions.create({ model: MODEL, messages: [
+    const res = await openai.chat.completions.create({ model: WRITER_MODEL, messages: [
       { role: "system", content: `CV optimization. Reformulate bullets:
 1. Optimize for recruiter clarity and role-specific proof, not keyword stuffing.
 2. Start with an action verb whenever possible.
@@ -1240,7 +1325,7 @@ export async function reformulateBullets(cv: StructuredCV, job: ParsedJob, opena
 12. NEVER inflate scope: do not upgrade "2 products" to "the entire platform", or "1 team" to "cross-functional teams", or "contributed to" to "led".
 ${fewshots}` },
       { role: "user", content: `Target: "${job.title}" at "${job.company}"\nKeywords: ${job.keywords.slice(0,10).join(", ")}\nIntentions: ${job.intentions.slice(0,3).join("; ")}\nCritical keywords: ${job.criticalKeywords.slice(0,8).join(", ")}\n\nBullets (with experience context when available):\n${list}\n\nReturn JSON: {"bullets": [{"index": 0, "text": "..."}]}` },
-    ], response_format: { type: "json_object" }, temperature: 0.2 });
+    ], response_format: { type: "json_object" }, temperature: WRITER_TEMPERATURE });
     const r = JSON.parse(res.choices[0].message.content || "{}");
     let accepted = 0;
     let rejected = 0;
@@ -1263,6 +1348,84 @@ ${fewshots}` },
     }
     log("reformulate DONE", { accepted, rejected, total: all.length });
   } catch (e: any) { log("reformulate FAILED", e.message); }
+  return sanitizeStructuredCV(cv);
+}
+
+// ─── Step 6b: Composer (whole-document single-pass rewrite) ─────────────────
+// Remplace résumé + reformulation bullet-par-bullet par UNE génération qui voit
+// tout le document : un seul auteur = cohérence narrative. Validation
+// déterministe par bullet ensuite, fallback sur le texte source bullet par bullet.
+export async function composeCVDocument(cv: StructuredCV, job: ParsedJob, openai: OpenAI): Promise<StructuredCV> {
+  const all = cv.experiences.flatMap((exp, ei) => exp.bullets.map((b, bi) => ({ ei, bi, text: b, ctx: `${exp.title} @ ${exp.company}`, desc: exp.description ? exp.description.slice(0, 200) : "" })));
+  if (all.length === 0) return cv;
+  const list = all.map((b, i) => `[${i}] (${b.ctx}${b.desc ? ` | context: ${b.desc}` : ""}): ${b.text}`).join("\n");
+  const fewshots = REFORMULATION_FEWSHOTS[job.positioning] || REFORMULATION_FEWSHOTS.ic;
+  const posGuide: Record<string, string> = {
+    consultant: "Angle: conseil, accompagnement, structuration des pratiques.",
+    lead: "Angle: vision, coordination, standards — sans inventer de people management.",
+    ic: "Angle: craft, decisions, delivery, impact concret.",
+    manager: "Angle: people management, recrutement, croissance d'equipe — seulement si prouve.",
+  };
+  const langRule = job.language === "FR" ? "Write everything in French." : "Write everything in English.";
+  try {
+    const res = await openai.chat.completions.create({
+      model: WRITER_MODEL,
+      temperature: WRITER_TEMPERATURE,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: `You are a senior CV writer. Rewrite this CV as ONE coherent, compelling document for the target role: a professional summary plus reworked bullets. The document must read as a single trajectory pointing toward the target role, not a list of disconnected tasks.
+
+STYLE:
+- Strong, varied action verbs; never start two consecutive bullets of the same experience with the same verb.
+- Dense and specific beats buzzwords. Cut filler ("participation a", "en charge de").
+- Mirror the vocabulary of the role honestly when the source proves the same activity.
+- Each bullet 60-200 characters. Summary: 2-3 sentences, max 300 characters, no first person, one clear angle (positioning + strongest proof), no "Competences:" labels.
+
+GROUNDING (absolute):
+- NO invention: no metrics, tools, team sizes, scopes or achievements absent from the source bullet or its context.
+- Preserve every number and every tool/brand name exactly.
+- Never change the nature of an activity ("tests utilisateurs" is not "A/B testing").
+- Never inflate scope ("2 produits" never becomes "l'ensemble de la plateforme"; "contribue a" never becomes "dirige").
+- ${posGuide[job.positioning] || posGuide.ic}
+- ${langRule}
+${fewshots}` },
+        { role: "user", content: `Target: "${job.title}" at "${job.company}" (${job.domain})
+Positioning: ${job.positioning}
+Intentions of the role: ${job.intentions.slice(0, 5).join("; ")}
+Critical keywords (use only if honestly supported): ${job.criticalKeywords.slice(0, 8).join(", ")}
+
+Current summary: ${cv.summary || "(none)"}
+
+Bullets (with experience context):
+${list}
+
+Return JSON: {"summary": "...", "bullets": [{"index": 0, "text": "..."}]}` },
+      ],
+    });
+    const r = JSON.parse(res.choices[0].message.content || "{}");
+    let accepted = 0;
+    let rejected = 0;
+    for (const rb of (r.bullets || [])) {
+      if (rb.index < 0 || rb.index >= all.length || !rb.text || rb.text.length <= 10 || rb.text.length > 210) continue;
+      const original = all[rb.index].text;
+      const rewritten = String(rb.text).trim();
+      if (!reformulationPreservesEntities(original, rewritten) || reformulationIsTooDistant(original, rewritten)) {
+        log("compose REJECTED bullet", { index: rb.index, original: original.slice(0, 80), rewritten: rewritten.slice(0, 80) });
+        rejected++;
+        continue;
+      }
+      cv.experiences[all[rb.index].ei].bullets[all[rb.index].bi] = rewritten;
+      accepted++;
+    }
+    const newSummary = String(r.summary || "").trim();
+    if (newSummary && newSummary.length >= 40 && newSummary.length <= 400 && mojibakePenaltyScore(newSummary) === 0) {
+      cv.summary = newSummary;
+    }
+    log("compose DONE", { accepted, rejected, total: all.length, summaryReplaced: cv.summary === newSummary });
+  } catch (e: any) {
+    log("compose FAILED (fallback reformulate)", e.message);
+    return reformulateBullets(cv, job, openai);
+  }
   return sanitizeStructuredCV(cv);
 }
 
@@ -1749,8 +1912,6 @@ function applyAssessmentGuardrails(report: OptimizationReport, assessment: Gener
   ].join(" "));
   const juniorLikeRole = /\b(junior|stage|intern|internship|alternance|apprentice|entry.?level)\b/.test(senioritySignals);
   const clearlySeniorProfile = /\b(senior|lead|head|staff|principal|manager|director)\b/.test(selectedScopeSignals);
-  const missingEvidenceCount = report.postRules.evidenceKeywordsMissing.length;
-  const atsBoost = report.scoreBreakdown.atsBoost ?? Math.max(0, (report.scoreBreakdown.atsOptimized ?? report.scoreBreakdown.ats) - report.scoreBreakdown.ats);
 
   if (juniorLikeRole && clearlySeniorProfile) {
     adjusted.fitMetier = Math.min(adjusted.fitMetier, 72);
@@ -1767,19 +1928,19 @@ function applyAssessmentGuardrails(report: OptimizationReport, assessment: Gener
     adjusted.fitNiveau = "uncertain";
   }
 
+  // Lead-scope thin : plus de clamp chiffré ici. Le warning `lead_scope_underproven`
+  // reste émis par buildHardWarnings si l'évaluateur juge le niveau incertain,
+  // mais on ne force plus fitNiveau/credibilité à la baisse sur simple regex.
   if (requiresLeadScope(report)) {
     const leadGroups = countPatternGroups(evidenceCorpus, LEAD_SCOPE_EVIDENCE_GROUPS);
     const managementGroups = countPatternGroups(evidenceCorpus, PEOPLE_MANAGEMENT_EVIDENCE_GROUPS);
     const leadScopeThin = requiresPeopleManagement(report)
       ? leadGroups < 3 || managementGroups < 1
       : leadGroups < 2;
-
-    if (leadScopeThin) {
-      adjusted.fitMetier = Math.min(adjusted.fitMetier, requiresPeopleManagement(report) ? 68 : 72);
-      adjusted.recruiterCredibilityScore = Math.min(adjusted.recruiterCredibilityScore, requiresPeopleManagement(report) ? 60 : 66);
-      adjusted.credibiliteCv = adjusted.recruiterCredibilityScore;
-      adjusted.overstatementRisk = Math.max(adjusted.overstatementRisk, requiresPeopleManagement(report) ? 68 : 58);
-      if (adjusted.fitNiveau === "coherent") adjusted.fitNiveau = "uncertain";
+    if (leadScopeThin && requiresPeopleManagement(report) && adjusted.fitNiveau === "coherent") {
+      // Cas le plus risqué (people management explicitement exigé, zéro preuve) :
+      // on marque juste l'incertitude, sans toucher les scores.
+      adjusted.fitNiveau = "uncertain";
     }
   }
 
@@ -1795,52 +1956,9 @@ function applyAssessmentGuardrails(report: OptimizationReport, assessment: Gener
     }
   }
 
-  if (adjusted.distanceDomain === "same" && missingEvidenceCount >= 3) {
-    adjusted.fitMetier = Math.min(adjusted.fitMetier, missingEvidenceCount >= 5 ? 82 : 85);
-    adjusted.recruiterCredibilityScore = Math.min(adjusted.recruiterCredibilityScore, missingEvidenceCount >= 5 ? 74 : 78);
-    adjusted.credibiliteCv = adjusted.recruiterCredibilityScore;
-    if (atsBoost >= 35) {
-      adjusted.overstatementRisk = Math.max(adjusted.overstatementRisk, missingEvidenceCount >= 5 ? 55 : 42);
-    }
-  }
-
-  if (
-    inferNicheDomainRequirement(report)
-    && adjusted.distanceDomain === "same"
-    && missingEvidenceCount >= 2
-  ) {
-    adjusted.fitMetier = Math.min(adjusted.fitMetier, 74);
-    adjusted.recruiterCredibilityScore = Math.min(adjusted.recruiterCredibilityScore, 70);
-    adjusted.credibiliteCv = adjusted.recruiterCredibilityScore;
-    adjusted.overstatementRisk = Math.max(adjusted.overstatementRisk, 52);
-    if (adjusted.fitNiveau === "coherent") adjusted.fitNiveau = "uncertain";
-  }
-
-  // Concept factory: real-product designer → concept-only role
-  if (
-    report.productMaturity === "concept_prototype" &&
-    hasRealProductEvidence(report.selectedBullets, adjusted.evidenceGrounding)
-  ) {
-    adjusted.fitMetier = Math.min(adjusted.fitMetier, 70);
-    adjusted.overstatementRisk = Math.max(adjusted.overstatementRisk, 50);
-  }
-
-  // Scope too simple: complex-system designer → SMB/simple-tools role
-  if (
-    report.complexityLevel === "simple_tools" &&
-    hasComplexSystemEvidence(report.selectedBullets)
-  ) {
-    adjusted.fitMetier = Math.min(adjusted.fitMetier, 74);
-  }
-
-  // Support-only ownership: designer with ownership evidence → iteration-only role
-  const evidenceCorpusForOwnership = buildReportEvidenceCorpus(report);
-  if (
-    report.ownershipLevel === "support" &&
-    countPatternGroups(evidenceCorpusForOwnership, LEAD_SCOPE_EVIDENCE_GROUPS) >= 2
-  ) {
-    adjusted.overstatementRisk = Math.max(adjusted.overstatementRisk, 40);
-  }
+  // Les anciens clamps fins (missing evidence, niche, concept factory, scope
+  // simple, support ownership) sont supprimés : leurs warnings restent émis
+  // par buildHardWarnings pour l'UI, mais le score est jugé par l'évaluateur.
 
   return adjusted;
 }
@@ -1995,15 +2113,14 @@ function buildHardWarnings(report: OptimizationReport, assessment: GeneratedCvAs
 }
 
 function capPertinenceByWarnings(score: number, warnings: HardWarningCode[]): number {
+  // 3 caps durs seulement : mismatch junior/stage, scope PM absent (mismatch de
+  // métier réel), intégrité texte. Les autres warnings restent visibles dans
+  // l'UI mais ne créent plus de falaises de score — c'est l'évaluateur LLM qui
+  // module via fitMetier / grounding / overstatementRisk.
   let capped = score;
   if (warnings.includes("junior_scope_mismatch")) capped = Math.min(capped, 38);
-  if (warnings.includes("lead_scope_underproven")) capped = Math.min(capped, 64);
-  if (warnings.includes("pm_scope_underproven")) capped = Math.min(capped, 22);
-  if (warnings.includes("niche_domain_underproven")) capped = Math.min(capped, 66);
+  if (warnings.includes("pm_scope_underproven")) capped = Math.min(capped, 25);
   if (warnings.includes("text_integrity_issue")) capped = Math.min(capped, 58);
-  if (warnings.includes("concept_factory_mismatch")) capped = Math.min(capped, 66);
-  if (warnings.includes("scope_too_simple")) capped = Math.min(capped, 70);
-  if (warnings.includes("scope_support_fragmented")) capped = Math.min(capped, 62);
   return capped;
 }
 
@@ -2029,28 +2146,12 @@ function computeGeneratedPertinence(assessment: GeneratedCvAssessment): number {
     score -= 6;
   }
 
-  let structuralCeiling = 100;
+  // Un seul plafond structurel : niveau incohérent. Les anciens plafonds fins
+  // (crédibilité+8, grounding+6, bandes 82/84/92) créaient des falaises
+  // incalibrables — la conservativité vient de l'évaluateur + overstatementPenalty.
   if (assessment.fitNiveau !== "coherent") {
-    structuralCeiling = Math.min(structuralCeiling, assessment.fitNiveau === "uncertain" ? 74 : 62);
+    score = Math.min(score, assessment.fitNiveau === "uncertain" ? 78 : 62);
   }
-  if (assessment.distanceDomain === "same") {
-    structuralCeiling = Math.min(
-      structuralCeiling,
-      Math.round(assessment.recruiterCredibilityScore + 8),
-      Math.round(assessment.evidenceGrounding + 6),
-    );
-    if (assessment.evidenceGrounding < 80 && assessment.recruiterCredibilityScore < 80) {
-      structuralCeiling = Math.min(structuralCeiling, 84);
-    }
-    if (assessment.overstatementRisk >= 45) {
-      structuralCeiling = Math.min(structuralCeiling, 82);
-    }
-    if (assessment.evidenceGrounding < 90) {
-      structuralCeiling = Math.min(structuralCeiling, 92);
-    }
-  }
-
-  score = Math.min(score, structuralCeiling);
 
   return clampPercent(capPertinenceByDistance(score, assessment.distanceDomain));
 }
@@ -2460,7 +2561,7 @@ async function evaluateGeneratedCvVariants(params: {
 
   try {
     const response = await openai.chat.completions.create({
-      model: MODEL,
+      model: EVAL_MODEL,
       temperature: 0,
       response_format: { type: "json_object" },
       messages: [
@@ -2558,7 +2659,8 @@ export function generateOptimizationReport(job: ParsedJob, selExps: ScoredExperi
     return skillNames.some(sn => sn.length >= 3 && (sn.includes(kwNorm) || kwNorm.includes(sn)));
   }).length;
   // Semantic score from average bullet quality — computed first so caps can use it
-  const semanticScore = Math.min(100, Math.round(avg * 100 / 120));
+  // (totalScore max = 60 det + 60 llm + 30 embeddings = 150)
+  const semanticScore = Math.min(100, Math.round(avg * 100 / 150));
 
   // Role-family mismatch detection — must run BEFORE fitBase/fitOffer so caps are mismatch-aware
   const jobTitleLow = job.title.toLowerCase();
@@ -2806,8 +2908,8 @@ export function generateOptimizationReport(job: ParsedJob, selExps: ScoredExperi
     return covered || aliasMatch;
   }).length;
   const tier1Ratio = tier1Keywords.length > 0 ? tier1Covered / tier1Keywords.length : 0.5;
-  // Density of relevant bullets (scored > 70 by LLM+deterministic)
-  const highScoredBullets = allBullets.filter(b => b.totalScore >= 70).length;
+  // Density of relevant bullets (échelle 150 : 85 ≈ ancien 70 sur 120)
+  const highScoredBullets = allBullets.filter(b => b.totalScore >= 85).length;
   const densityRatio = total > 0 ? highScoredBullets / total : 0;
   const v2forcePreuve = Math.round(
     (proofRatio * 0.4 + tier1Ratio * 0.4 + densityRatio * 0.2) * 100,
@@ -3200,6 +3302,7 @@ export async function runFastDryRun(
       experience: exp,
       deterministicScore: det.score,
       llmScore: 0,
+      semanticScore: 0,
       totalScore: det.score,
       matchedTags: det.matchedTags,
       matchedKeywords: det.matchedKeywords,
@@ -3333,7 +3436,7 @@ export async function runTailorPipeline(input: TailorInput, openai: OpenAI): Pro
       optimizedBaseCv.summary = optimizedBaseCv.summary.slice(0, introChars).replace(/[,;]?\s*\S*$/, "").trim();
     }
 
-    const candidateCv = await reformulateBullets(cloneStructuredCV(optimizedBaseCv), parsedJob, openai);
+    const candidateCv = await composeCVDocument(cloneStructuredCV(optimizedBaseCv), parsedJob, openai);
     const candidateReportCv = cloneStructuredCV(candidateCv);
     const candidatePostRules = applyPostRules(candidateReportCv, parsedJob);
     const candidateRawReport = generateOptimizationReport(parsedJob, optimizedSelExps, sanitizedInput.allSkills, candidatePostRules, candidateReportCv);

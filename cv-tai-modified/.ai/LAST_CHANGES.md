@@ -1,5 +1,19 @@
 # Last Changes
 
+## 2026-07-27
+
+### Refonte qualité moteur (phases 0-4 du plan d'audit)
+- Quoi : refonte du moteur suite à l'audit qualité (CV incohérents, sortie générique)
+- Fichiers : `server/tailoring-engine.ts`, `script/eval.ts`, `package.json`, `analysis/corpus/README.md`
+- Impact :
+  - **Phase 1 — modèles ciblés** : rédaction (summary, composer, reformulation fallback) et évaluateur `generated_cv_v1` passent sur `WRITER_MODEL`/`EVAL_MODEL` (défaut `gpt-4o`, overridable par env). Parsing/scoring restent sur mini. Température rédaction 0.45.
+  - **Phase 2 — scoring sémantique embeddings** : `text-embedding-3-small` au tailor-time (1 appel batch, ~0 coût), cosine max bullet↔facettes de l'offre (intentions + responsibilities + roleFrame), remappé 0-30 points dans `totalScore`. Fallback silencieux si l'appel échoue. Dedup cross-expérience par cosine > 0.88 en plus du Jaccard.
+  - **Phase 3 — scoring dégraissé** : cap déterministe 70→60, LLM 0-50→0-60 (le lexical ne domine plus), pré-filtre top-30→top-60 trié det+sémantique. `structuralCeiling` supprimé, `capPertinenceByWarnings` réduit à 3 caps (junior, PM, intégrité), clamps fins de `applyAssessmentGuardrails` supprimés (lead/niche/concept/scope) — warnings toujours émis pour l'UI. Échelle totalScore 120→150 recalée dans le report.
+  - **Fix bug** : `dimCounts` de `selectBullets` était global → pénalisait les bullets des expériences suivantes et laissait des expériences vides. Maintenant par expérience.
+  - **Phase 4 — composer** : `composeCVDocument` remplace `reformulateBullets` dans le pipeline optimisé — un seul appel qui réécrit résumé + bullets comme UN document cohérent (un auteur = cohérence narrative), validation déterministe par bullet (entités, distance, longueur) avec fallback bullet par bullet, fallback complet sur `reformulateBullets` si l'appel échoue.
+  - **Phase 0 — harness d'éval** : `npm run eval` rejoue le corpus `analysis/corpus/` (fidèle + optimisé par offre), assertions dures de `calibration_targets_2026-04-05.md` codées (optimisé ≥ fidèle, bandes cibles, badges, intégrité). `npm run eval -- --export` exporte library + offres depuis la DB. Sorties dans `analysis/eval_runs/<ts>/`.
+- Verification : `npm run check` et `npm run build` passent. **Le corpus réel n'a pas encore été rejoué** (OPENAI_API_KEY absent en local) — à faire avant tout déploiement : export corpus, renommage des offres, `npm run eval`.
+
 ## 2026-05-04
 
 ### Railway build fix
