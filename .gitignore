@@ -1,0 +1,11 @@
+# Secrets et configuration locale
+.env
+.env.*
+!.env.example
+*.local.json
+.claude/settings.local.json
+
+# Dumps de base (ne jamais committer)
+*.dump
+*.sql.gz
+backups/

@@ -114,7 +114,7 @@ export function Layout({ children, pageLabel }: { children: React.ReactNode; pag
   const { data: user } = useCurrentUser();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const avatarSeed = useMemo(() => user?.email?.trim() || "Theo Pornin", [user?.email]);
+  const avatarSeed = useMemo(() => user?.email?.trim() || "Profil", [user?.email]);
 
   return (
     <div className="flex min-h-screen bg-white">
@@ -162,7 +162,7 @@ export function Layout({ children, pageLabel }: { children: React.ReactNode; pag
               </div>
               <div>
                 <p className="text-[14px] font-semibold leading-tight tracking-[-0.35px] text-[#0f1729]">
-                  {user?.email?.split("@")[0] || "Theo Pornin"}
+                  {user?.email?.split("@")[0] || "Profil"}
                 </p>
                 <p className="text-[12px] tracking-[0.6px] text-[#65758b]">Crédit illimités</p>
               </div>

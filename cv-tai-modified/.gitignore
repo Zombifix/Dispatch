@@ -1,2 +1,10 @@
 node_modules/
 dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.dump
+analysis/eval_runs/
+analysis/corpus/library.json
+analysis/corpus/offers/

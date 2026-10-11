@@ -1,7 +1,7 @@
 /**
  * Seed script: creates a test user (Chef de projet éditorial / Print profile)
  * Far from UX/Product design — useful for cross-sector rejection testing.
- * Usage: DATABASE_URL=... npx tsx server/seed-test-user.ts
+ * Usage: DATABASE_URL=... SEED_PASSWORD=... npx tsx server/seed-test-user.ts
  */
 
 import { pool } from "./db";
@@ -22,8 +22,11 @@ async function main() {
     await client.query("BEGIN");
 
     // --- 1. Create / reset test user ---
-    const email = "marie.leclerc.test@gmail.com";
-    const password = "TestUser123";
+    const email = process.env.SEED_EMAIL || "marie.leclerc.test@example.com";
+    const password = process.env.SEED_PASSWORD;
+    if (!password || password.length < 12) {
+      throw new Error("SEED_PASSWORD (12+ caractères) requis : aucun mot de passe n'est stocké dans le dépôt.");
+    }
     const existing = await client.query("SELECT id FROM users WHERE email = $1", [email]);
     let userId: number;
 
@@ -227,7 +230,6 @@ async function main() {
     const totalBullets = bullets1.length + bullets2.length + bullets3.length;
     console.log("\n🎉 Test user ready!");
     console.log(`   Email    : ${email}`);
-    console.log(`   Password : ${password}`);
     console.log(`   Profile  : Marie Leclerc — Cheffe de projet éditorial / Print`);
     console.log(`   Data     : 3 expériences, ${totalBullets} bullets, ${skills.length} skills`);
     console.log(`   Use case : Cross-sector (print/édition ≠ UX/Product) — doit scorer bas sur offres design`);
