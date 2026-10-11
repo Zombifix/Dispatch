@@ -14,6 +14,9 @@ import {
   runTailorPipeline,
   runDryRunCheck,
   runFastDryRun,
+  renderCV,
+  revertRewrite,
+  type OptimizationReport,
 } from "./tailoring-engine";
 import { createUser, getUserByEmail } from "./auth";
 import { resolveJobInput } from "./job-input";
@@ -959,6 +962,31 @@ JSON uniquement :
       console.error("[TAILOR] Unexpected error:", e);
       res.status(500).json({ message: "An unexpected error occurred during CV generation." });
     }
+  });
+
+  // Enregistre le texte du CV modifié à la main par l'utilisateur.
+  app.patch("/api/runs/:id/cv", async (req, res) => {
+    const parsed = z.object({ text: z.string().min(1).max(20000) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Texte de CV invalide." });
+    const run = await storage.updateRunOutput(uid(req), req.params.id, parsed.data.text);
+    if (!run) return res.status(404).json({ message: "Not found" });
+    res.json(run);
+  });
+
+  // Annule une retouche IA : la formulation d'origine de l'utilisateur revient.
+  app.post("/api/runs/:id/rewrites/:index/revert", async (req, res) => {
+    const userId = uid(req);
+    const run = await storage.getRun(userId, req.params.id);
+    if (!run) return res.status(404).json({ message: "Not found" });
+    const report = run.outputReportJson as OptimizationReport | null;
+    const index = Number(req.params.index);
+    if (!report?.structuredCV || !Number.isInteger(index) || !report.rewrites?.[index]) {
+      return res.status(400).json({ message: "Retouche introuvable pour ce CV." });
+    }
+    const cv = revertRewrite({ ...report.structuredCV, rewrites: report.rewrites }, index);
+    const text = renderCV(cv, report.cvLanguage || "FR");
+    const updated = await storage.updateRunOutput(userId, run.id, text, { ...report, structuredCV: cv, rewrites: cv.rewrites });
+    res.json(updated);
   });
 
   app.get(api.tailor.getRun.path, async (req, res) => {

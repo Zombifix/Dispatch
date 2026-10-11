@@ -61,6 +61,7 @@ function normalizeSkillKey(s: string): string {
 function cloneStructuredCV(cv: StructuredCV): StructuredCV {
   return {
     ...cv,
+    rewrites: (cv.rewrites || []).map(r => ({ ...r })),
     experiences: cv.experiences.map(exp => ({ ...exp, bullets: [...exp.bullets] })),
     skills: [...cv.skills],
     formations: cv.formations.map(f => ({ ...f })),
@@ -333,6 +334,18 @@ export interface RoleFrame {
   scopeSignals: string[];
 }
 
+// ─── Langue ─────────────────────────────────────────────────────────────────
+const FR_MARKERS = /\b(le|la|les|des|du|une|un|et|pour|avec|sur|dans|chez|équipe|equipe|conçu|mise|refonte|accompagn|pilot)\b/gi;
+const EN_MARKERS = /\b(the|and|for|with|on|in|of|team|designed|led|built|delivered|improved|across)\b/gi;
+
+/** Langue dominante d'un ensemble de textes (bibliothèque de l'utilisateur). */
+export function detectLanguage(texts: string[]): "FR" | "EN" {
+  const corpus = texts.join(" ");
+  const fr = (corpus.match(FR_MARKERS) || []).length + (corpus.match(/[éèàùçê]/g) || []).length * 0.5;
+  const en = (corpus.match(EN_MARKERS) || []).length;
+  return en > fr ? "EN" : "FR";
+}
+
 // ─── Profile Frame (structured candidate inventory) ─────────────────────────
 export interface DomainExperience {
   domain: string;
@@ -598,7 +611,9 @@ function sanitizeParsedJob(job: ParsedJob): ParsedJob {
 export interface ScoredBullet { bullet: Bullet; experience: Experience; deterministicScore: number; llmScore: number; semanticScore: number; totalScore: number; matchedTags: string[]; matchedKeywords: string[]; dimension: string; embedding?: number[]; }
 export interface ScoredExperience { experience: Experience; score: number; reason: string; matchedAspects: string[]; selectedBullets: ScoredBullet[]; charBudget: number; }
 export interface CompositionPlan { targetTitle: string; summary: string; sections: { experience: Experience; experienceScore: number; experienceReason: string; bullets: ScoredBullet[]; }[]; relevantSkills: string[]; rejectedBullets: { text: string; score: number; reason: string }[]; rejectedExperiences: { title: string; company: string; score: number; reason: string }[]; }
-export interface StructuredCV { name?: string; targetTitle: string; summary: string; experiences: { title: string; company: string; contractType?: string; dates: string; bullets: string[]; description?: string; }[]; skills: string[]; formations: { degree: string; school: string; year?: string }[]; languages: { name: string; level?: string }[]; }
+// Une retouche = une phrase modifiée par un modèle, toujours réversible par l'utilisateur.
+export interface CvRewrite { target: "summary" | "bullet"; experienceIndex?: number; bulletIndex?: number; original: string; rewritten: string; reason: string; reverted?: boolean; }
+export interface StructuredCV { name?: string; targetTitle: string; summary: string; summarySource?: "profile" | "generated"; experiences: { title: string; company: string; contractType?: string; dates: string; bullets: string[]; description?: string; }[]; skills: string[]; formations: { degree: string; school: string; year?: string }[]; languages: { name: string; level?: string }[]; rewrites?: CvRewrite[]; }
 
 function sanitizeStructuredCV(cv: StructuredCV): StructuredCV {
   return {
@@ -1169,6 +1184,7 @@ export async function buildStructuredCV(job: ParsedJob, selExps: ScoredExperienc
   const seen = new Set<string>(); const dedupSkills = relSkills.filter(s => { const l = normalizeSkillKey(s); if (seen.has(l)) return false; seen.add(l); return true; });
 
   let summary = extras?.profileSummary || "";
+  let summarySource: StructuredCV["summarySource"] = summary ? "profile" : "generated";
   const topExps = selExps.filter(se => se.selectedBullets.length > 0).slice(0, 3);
   const posGuide: Record<string, string> = {
     consultant: "Emphasize: conseil, accompagnement, structuration des pratiques, montee en maturite design. NEVER claim: team management, hiring, product ownership, or technical leadership unless the bullets prove it.",
@@ -1183,7 +1199,10 @@ export async function buildStructuredCV(job: ParsedJob, selExps: ScoredExperienc
   const modeGuide = mode === "optimized"
     ? "Optimized-human mode: choose the most legitimate angle for this role, make the strongest proved fit obvious, and avoid generic summary fluff. Never claim management, team building, head scope, strategy ownership, or domain expertise unless the selected bullets prove it explicitly."
     : "Faithful mode: stay very close to the source profile and keep the framing prudent.";
-  if (topExps.length > 0) {
+  // Mode fidèle : le résumé écrit par l'utilisateur est repris tel quel, sans IA.
+  const keepUserSummary = mode !== "optimized" && !!summary;
+  if (topExps.length > 0 && !keepUserSummary) {
+    summarySource = "generated";
     try {
       const res = await openai.chat.completions.create({ model: WRITER_MODEL, temperature: WRITER_TEMPERATURE, messages: [
         { role: "system", content: `Write a 2-3 sentence CV summary. Max 45 words, max 300 characters. No first person. ${posGuide[job.positioning]} ${modeGuide} ${job.language === "FR" ? "In French." : "In English."}
@@ -1211,7 +1230,10 @@ GROUNDING RULES:
 
   const fmtDate = (d: string | null | undefined, lang: string) => { if (!d) return "Present"; try { return new Date(d).toLocaleDateString(lang === "FR" ? "fr-FR" : "en-US", { month: "short", year: "numeric" }); } catch { return d; } };
   return sanitizeStructuredCV({
-    name: extras?.profileName || undefined, targetTitle: job.title, summary,
+    // Titre : celui que l'utilisateur s'est donné, jamais celui de l'offre.
+    name: extras?.profileName || undefined,
+    targetTitle: extras?.profileTitle?.trim() || selExps.find(se => se.selectedBullets.length > 0)?.experience.title || "",
+    summary, summarySource,
     experiences: selExps.map(se => ({ title: se.experience.title, company: se.experience.company, contractType: (se.experience as any).contractType || undefined, dates: `${fmtDate(se.experience.startDate, job.language)} - ${fmtDate(se.experience.endDate, job.language)}`, bullets: se.selectedBullets.map(sb => sb.bullet.text), description: se.experience.description || undefined })),
     skills: dedupSkills,
     formations: (extras?.formations || []).map((f: any) => ({ degree: f.degree, school: f.school, year: f.year })),
@@ -1299,131 +1321,128 @@ function reformulationIsTooDistant(original: string, reformulated: string): bool
   return similarity < 0.20;
 }
 
-export async function reformulateBullets(cv: StructuredCV, job: ParsedJob, openai: OpenAI): Promise<StructuredCV> {
-  const all = cv.experiences.flatMap((exp, ei) => exp.bullets.map((b, bi) => ({ ei, bi, text: b, ctx: `${exp.title} @ ${exp.company}`, desc: exp.description ? exp.description.slice(0, 150) : "" })));
-  if (all.length === 0) return cv;
-  const list = all.map((b, i) => `[${i}] (${b.ctx}${b.desc ? ` | context: ${b.desc}` : ""}): ${b.text}`).join("\n");
-  const lang = job.language === "FR" ? "Reformule en francais." : "Reformulate in English.";
-  const fewshots = REFORMULATION_FEWSHOTS[job.positioning] || REFORMULATION_FEWSHOTS.ic;
-  try {
-    const res = await openai.chat.completions.create({ model: WRITER_MODEL, messages: [
-      { role: "system", content: `CV optimization. Reformulate bullets:
-1. Optimize for recruiter clarity and role-specific proof, not keyword stuffing.
-2. Start with an action verb whenever possible.
-3. NO invention; only use information present in the bullet or its context.
-4. Preserve proper nouns, brand names, and specific numbers exactly — changing or dropping a number is FORBIDDEN.
-5. Do NOT change the nature of activities: "tests utilisateurs" is not "A/B testing", and "interviews" is not "surveys".
-6. If a bullet is already specific and convincing, only make small edits; if it is generic, make it sharper and more role-relevant.
-7. Max 200 chars.
-8. ${lang}
-9. ${job.positioning} role: ${job.positioning === "consultant" ? "emphasize accompagnement, structuration, impact on teams" : job.positioning === "lead" ? "emphasize scope, standards, coordination, but never fake people management" : job.positioning === "manager" ? "emphasize people management, hiring, coaching, team growth" : "emphasize delivery, decisions, results"}.
-10. If the role is lead/head, do not claim team building, hiring, or management unless the source bullet proves it.
-11. Prefer clarity and density over adding more buzzwords.
-12. NEVER inflate scope: do not upgrade "2 products" to "the entire platform", or "1 team" to "cross-functional teams", or "contributed to" to "led".
-${fewshots}` },
-      { role: "user", content: `Target: "${job.title}" at "${job.company}"\nKeywords: ${job.keywords.slice(0,10).join(", ")}\nIntentions: ${job.intentions.slice(0,3).join("; ")}\nCritical keywords: ${job.criticalKeywords.slice(0,8).join(", ")}\n\nBullets (with experience context when available):\n${list}\n\nReturn JSON: {"bullets": [{"index": 0, "text": "..."}]}` },
-    ], response_format: { type: "json_object" }, temperature: WRITER_TEMPERATURE });
-    const r = JSON.parse(res.choices[0].message.content || "{}");
-    let accepted = 0;
-    let rejected = 0;
-    for (const rb of (r.bullets || [])) {
-      if (rb.index < 0 || rb.index >= all.length || !rb.text || rb.text.length <= 10) continue;
-      const original = all[rb.index].text;
-      const reformulated = rb.text;
-      if (!reformulationPreservesEntities(original, reformulated)) {
-        log("reformulate REJECTED (entities lost)", { index: rb.index, original: original.slice(0, 80), reformulated: reformulated.slice(0, 80) });
-        rejected++;
-        continue;
-      }
-      if (reformulationIsTooDistant(original, reformulated)) {
-        log("reformulate REJECTED (too distant)", { index: rb.index, original: original.slice(0, 80), reformulated: reformulated.slice(0, 80) });
-        rejected++;
-        continue;
-      }
-      cv.experiences[all[rb.index].ei].bullets[all[rb.index].bi] = reformulated;
-      accepted++;
-    }
-    log("reformulate DONE", { accepted, rejected, total: all.length });
-  } catch (e: any) { log("reformulate FAILED", e.message); }
-  return sanitizeStructuredCV(cv);
+export interface RewriteCandidate { experienceIndex: number; bulletIndex: number; reason: string; }
+export const MAX_REWRITES = 3;
+
+/**
+ * Contrôles déterministes appliqués à toute phrase réécrite par un modèle.
+ * La consigne au modèle ne suffit pas : c'est ce code qui garantit l'ancrage.
+ */
+export function validateRewrite(original: string, rewritten: string, allowedVocabulary = ""): { ok: boolean; reason?: string } {
+  const r = rewritten.trim();
+  if (r.length < 40 || r.length > 200) return { ok: false, reason: "longueur hors limites" };
+  const ratio = r.length / Math.max(1, original.length);
+  if (ratio < 0.75 || ratio > 1.3) return { ok: false, reason: "longueur trop différente de l'original" };
+  if (!reformulationPreservesEntities(original, r)) return { ok: false, reason: "chiffre ou outil perdu" };
+  const origNumbers = new Set((original.match(/\d[\d,.]*%?/g) || []));
+  if ((r.match(/\d[\d,.]*%?/g) || []).some(n => !origNumbers.has(n))) return { ok: false, reason: "chiffre ajouté" };
+  const similarity = jaccardSimilarity(tokenizeNormalized(original), tokenizeNormalized(r));
+  if (similarity < 0.4) return { ok: false, reason: "trop éloigné de l'original" };
+  // Aucun nom propre nouveau qui ne vienne ni de l'original ni de l'offre
+  const known = normalizeEvidenceText(`${original} ${allowedVocabulary}`);
+  const newProper = (r.match(/\b[A-Z][a-zA-Zà-ÿ0-9]{2,}\b/g) || [])
+    .filter((w, i) => i > 0 || !r.startsWith(w))
+    .filter(w => !known.includes(normalizeEvidenceText(w)));
+  if (newProper.length > 0) return { ok: false, reason: `nom propre introduit (${newProper[0]})` };
+  return { ok: true };
 }
 
-// ─── Step 6b: Composer (whole-document single-pass rewrite) ─────────────────
-// Remplace résumé + reformulation bullet-par-bullet par UNE génération qui voit
-// tout le document : un seul auteur = cohérence narrative. Validation
-// déterministe par bullet ensuite, fallback sur le texte source bullet par bullet.
-export async function composeCVDocument(cv: StructuredCV, job: ParsedJob, openai: OpenAI): Promise<StructuredCV> {
-  const all = cv.experiences.flatMap((exp, ei) => exp.bullets.map((b, bi) => ({ ei, bi, text: b, ctx: `${exp.title} @ ${exp.company}`, desc: exp.description ? exp.description.slice(0, 200) : "" })));
-  if (all.length === 0) return cv;
-  const list = all.map((b, i) => `[${i}] (${b.ctx}${b.desc ? ` | context: ${b.desc}` : ""}): ${b.text}`).join("\n");
-  const fewshots = REFORMULATION_FEWSHOTS[job.positioning] || REFORMULATION_FEWSHOTS.ic;
-  const posGuide: Record<string, string> = {
-    consultant: "Angle: conseil, accompagnement, structuration des pratiques.",
-    lead: "Angle: vision, coordination, standards — sans inventer de people management.",
-    ic: "Angle: craft, decisions, delivery, impact concret.",
-    manager: "Angle: people management, recrutement, croissance d'equipe — seulement si prouve.",
-  };
-  const langRule = job.language === "FR" ? "Write everything in French." : "Write everything in English.";
+/**
+ * Retouche ciblée : au plus MAX_REWRITES bullets désignés par le moteur (ceux qui
+ * prouvent une exigence de l'offre avec un autre vocabulaire), plus le résumé en
+ * mode optimisé. Chaque retouche est tracée dans cv.rewrites et réversible.
+ * Tout ce qui n'est pas désigné reste mot pour mot.
+ */
+export async function composeCVDocument(
+  cv: StructuredCV,
+  job: ParsedJob,
+  openai: OpenAI,
+  options: { candidates: RewriteCandidate[]; rewriteSummary: boolean },
+): Promise<StructuredCV> {
+  const candidates = options.candidates
+    .filter(c => cv.experiences[c.experienceIndex]?.bullets[c.bulletIndex])
+    .slice(0, MAX_REWRITES);
+  if (candidates.length === 0 && !options.rewriteSummary) return cv;
+
+  const rewrites: CvRewrite[] = [...(cv.rewrites || [])];
+  const list = candidates.map((c, i) => {
+    const exp = cv.experiences[c.experienceIndex];
+    return `[${i}] (${exp.title} @ ${exp.company}${exp.description ? ` | context: ${exp.description.slice(0, 200)}` : ""}) — ${c.reason}: ${exp.bullets[c.bulletIndex]}`;
+  }).join("\n");
+  const langRule = job.language === "FR" ? "Write in French." : "Write in English.";
+  const vocabulary = uniqueItems([...job.criticalKeywords, ...job.requiredSkills, ...job.keywords]).slice(0, 20);
   try {
     const res = await openai.chat.completions.create({
       model: WRITER_MODEL,
-      temperature: WRITER_TEMPERATURE,
+      temperature: 0,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: `You are a senior CV writer. Rewrite this CV as ONE coherent, compelling document for the target role: a professional summary plus reworked bullets. The document must read as a single trajectory pointing toward the target role, not a list of disconnected tasks.
+        { role: "system", content: `You make MINIMAL wording edits to a few CV lines so that a recruiter for the target role recognises what they already prove.
 
-STYLE:
-- Strong, varied action verbs; never start two consecutive bullets of the same experience with the same verb.
-- Dense and specific beats buzzwords. Cut filler ("participation a", "en charge de").
-- Mirror the vocabulary of the role honestly when the source proves the same activity.
-- Each bullet 60-200 characters. Summary: 2-3 sentences, max 300 characters, no first person, one clear angle (positioning + strongest proof), no "Competences:" labels.
+RULES (absolute):
+- Change as few words as possible: swap the candidate's wording for the role's vocabulary ONLY when the line already proves that same thing.
+- Keep the candidate's sentence structure and voice. Do not add adjectives, impact claims or buzzwords.
+- Keep every number, tool, brand and proper noun exactly. Add none.
+- Never change the nature or scope of the activity.
+- Same length as the original, within 20%.
+- If a line cannot be improved honestly, return it unchanged.
+- ${langRule}` },
+        { role: "user", content: `Target role: "${job.title}" (${job.positioning})
+Role vocabulary (use only where honestly supported): ${vocabulary.join(", ")}
 
-GROUNDING (absolute):
-- NO invention: no metrics, tools, team sizes, scopes or achievements absent from the source bullet or its context.
-- Preserve every number and every tool/brand name exactly.
-- Never change the nature of an activity ("tests utilisateurs" is not "A/B testing").
-- Never inflate scope ("2 produits" never becomes "l'ensemble de la plateforme"; "contribue a" never becomes "dirige").
-- ${posGuide[job.positioning] || posGuide.ic}
-- ${langRule}
-${fewshots}` },
-        { role: "user", content: `Target: "${job.title}" at "${job.company}" (${job.domain})
-Positioning: ${job.positioning}
-Intentions of the role: ${job.intentions.slice(0, 5).join("; ")}
-Critical keywords (use only if honestly supported): ${job.criticalKeywords.slice(0, 8).join(", ")}
+Lines to adjust:
+${list || "(none)"}
 
-Current summary: ${cv.summary || "(none)"}
-
-Bullets (with experience context):
-${list}
-
-Return JSON: {"summary": "...", "bullets": [{"index": 0, "text": "..."}]}` },
+${options.rewriteSummary ? `Also adjust this summary the same way (2-3 sentences, max 300 characters, no first person, no generic claims):\n${cv.summary || "(none)"}\n` : ""}
+Return JSON: {"bullets": [{"index": 0, "text": "..."}]${options.rewriteSummary ? ', "summary": "..."' : ""}}` },
       ],
     });
     const r = JSON.parse(res.choices[0].message.content || "{}");
-    let accepted = 0;
-    let rejected = 0;
+    const allowed = `${job.title} ${job.company} ${vocabulary.join(" ")}`;
     for (const rb of (r.bullets || [])) {
-      if (rb.index < 0 || rb.index >= all.length || !rb.text || rb.text.length <= 10 || rb.text.length > 210) continue;
-      const original = all[rb.index].text;
-      const rewritten = String(rb.text).trim();
-      if (!reformulationPreservesEntities(original, rewritten) || reformulationIsTooDistant(original, rewritten)) {
-        log("compose REJECTED bullet", { index: rb.index, original: original.slice(0, 80), rewritten: rewritten.slice(0, 80) });
-        rejected++;
-        continue;
-      }
-      cv.experiences[all[rb.index].ei].bullets[all[rb.index].bi] = rewritten;
-      accepted++;
+      const c = candidates[rb.index];
+      if (!c || typeof rb.text !== "string") continue;
+      const original = cv.experiences[c.experienceIndex].bullets[c.bulletIndex];
+      const rewritten = rb.text.trim();
+      if (rewritten === original) continue;
+      const check = validateRewrite(original, rewritten, `${cv.experiences[c.experienceIndex].description || ""} ${allowed}`);
+      if (!check.ok) { log("rewrite REJECTED", { reason: check.reason, original: original.slice(0, 80) }); continue; }
+      cv.experiences[c.experienceIndex].bullets[c.bulletIndex] = rewritten;
+      rewrites.push({ target: "bullet", experienceIndex: c.experienceIndex, bulletIndex: c.bulletIndex, original, rewritten, reason: c.reason });
     }
     const newSummary = String(r.summary || "").trim();
-    if (newSummary && newSummary.length >= 40 && newSummary.length <= 400 && mojibakePenaltyScore(newSummary) === 0) {
+    if (options.rewriteSummary && newSummary && newSummary !== cv.summary
+      && newSummary.length >= 40 && newSummary.length <= 320 && mojibakePenaltyScore(newSummary) === 0) {
+      rewrites.push({ target: "summary", original: cv.summary, rewritten: newSummary, reason: "résumé orienté vers le poste" });
       cv.summary = newSummary;
+      cv.summarySource = "generated";
     }
-    log("compose DONE", { accepted, rejected, total: all.length, summaryReplaced: cv.summary === newSummary });
+    log("compose DONE", { candidates: candidates.length, applied: rewrites.length });
   } catch (e: any) {
-    log("compose FAILED (fallback reformulate)", e.message);
-    return reformulateBullets(cv, job, openai);
+    // Échec du modèle : le CV reste exactement celui de l'utilisateur.
+    log("compose FAILED (texte source conservé)", e.message);
   }
+  cv.rewrites = rewrites;
   return sanitizeStructuredCV(cv);
+}
+
+/**
+ * Désigne les bullets qui méritent une retouche : pertinents pour l'offre
+ * (signal sémantique ou LLM) mais sans le vocabulaire attendu.
+ */
+export function pickRewriteCandidates(cv: StructuredCV, selExps: ScoredExperience[]): RewriteCandidate[] {
+  const out: (RewriteCandidate & { score: number })[] = [];
+  // buildStructuredCV conserve l'ordre de selExps : les index correspondent.
+  selExps.forEach((se, ei) => {
+    if (!cv.experiences[ei]) return;
+    se.selectedBullets.forEach((sb, bi) => {
+      const relevant = sb.semanticScore >= 15 || sb.llmScore >= 35;
+      if (relevant && sb.matchedKeywords.length === 0) {
+        out.push({ experienceIndex: ei, bulletIndex: bi, reason: "pertinent pour le poste mais formulé avec un autre vocabulaire", score: sb.totalScore });
+      }
+    });
+  });
+  return out.sort((a, b) => b.score - a.score).slice(0, MAX_REWRITES).map(({ score, ...c }) => c);
 }
 
 // ── Step 7: Post Rules ──
@@ -1443,19 +1462,9 @@ export function applyPostRules(cv: StructuredCV, job: ParsedJob): PostRuleResult
   const initialText = [cv.summary, ...cv.experiences.flatMap(e => e.bullets), cv.skills.join(" ")].join(" ").toLowerCase();
   const missingBeforeInjection = job.criticalKeywords.filter(kw => !textHasKeyword(initialText, kw));
   const evidenceCovered = job.criticalKeywords.filter(kw => textHasKeyword(initialText, kw));
-  const isSkillLike = (kw: string) =>
-    kw.length <= 35 &&
-    kw.split(/\s+/).length <= 3 &&
-    !/\d+\+?\s*years?/i.test(kw) &&
-    !/\b(experience|communication|portfolio|environments?|solution|quality|skills?|management|ability|knowledge|insights?|fidelity|deliverables?|approaches?|practices?|iterative|exceptional|strong|proven|thinking|mindset|oriented)\b/i.test(kw);
+  // Aucune compétence n'est ajoutée au CV parce que l'offre la cite : les
+  // mots-clés absents sont signalés dans le rapport, à l'utilisateur de décider.
   const injectedKeywords: string[] = [];
-  for (const kw of missingBeforeInjection) {
-    if (isSkillLike(kw) && !cv.skills.some(s => normalizeSkillKey(s) === normalizeSkillKey(kw))) {
-      cv.skills.push(kw);
-      injectedKeywords.push(kw);
-      rules.push(`Injected "${kw}" into skills`);
-    }
-  }
   let longCount = 0;
   for (const exp of cv.experiences) { for (let i = 0; i < exp.bullets.length; i++) { if (exp.bullets[i].length > 200) { exp.bullets[i] = exp.bullets[i].slice(0, 200).replace(/[,;]?\s*\S*$/, ""); longCount++; rules.push(`Truncated bullet in ${exp.company}`); } } }
   const total = cv.experiences.reduce((s, e) => s + e.bullets.length, 0);
@@ -1478,18 +1487,43 @@ export function applyPostRules(cv: StructuredCV, job: ParsedJob): PostRuleResult
 
 // ── Step 8: Render ──
 export function renderCVText(cv: StructuredCV, job: ParsedJob): string {
+  return renderCV(cv, sanitizeParsedJob(job).language);
+}
+
+/** Rendu texte d'un CV structuré, dans une langue donnée. */
+export function renderCV(cv: StructuredCV, language: "FR" | "EN"): string {
   const safeCv = sanitizeStructuredCV(cv);
-  const safeJob = sanitizeParsedJob(job);
-  const fr = safeJob.language === "FR"; const l: string[] = [];
+  const fr = language === "FR"; const l: string[] = [];
   if (safeCv.name) l.push(safeCv.name);
-  l.push(safeCv.targetTitle, "");
+  if (safeCv.targetTitle) l.push(safeCv.targetTitle);
+  l.push("");
   if (safeCv.summary) { l.push(fr ? "RESUME PROFESSIONNEL" : "PROFESSIONAL SUMMARY"); l.push(safeCv.summary, ""); }
   l.push(fr ? "EXPERIENCE PROFESSIONNELLE" : "EXPERIENCE", "");
-  for (const exp of safeCv.experiences) { const ct = exp.contractType ? ` (${exp.contractType})` : ""; l.push(`${exp.title} | ${exp.company}${ct}`); l.push(exp.dates); for (const b of exp.bullets) l.push(`- ${b}`); l.push(""); }
+  for (const exp of safeCv.experiences) {
+    const ct = exp.contractType ? ` (${exp.contractType})` : "";
+    l.push(`${exp.title} | ${exp.company}${ct}`); l.push(exp.dates);
+    for (const b of exp.bullets) l.push(`- ${b}`);
+    l.push("");
+  }
   if (safeCv.skills.length) { l.push(`${fr ? "COMPETENCES" : "SKILLS"}: ${safeCv.skills.join(" | ")}`); l.push(""); }
   if (safeCv.formations.length) { l.push(fr ? "FORMATION" : "EDUCATION"); for (const f of safeCv.formations) l.push(`${f.degree} - ${f.school}${f.year ? ` (${f.year})` : ""}`); l.push(""); }
   if (safeCv.languages.length) { l.push(fr ? "LANGUES" : "LANGUAGES"); for (const la of safeCv.languages) l.push(`${la.name}${la.level ? ` - ${la.level}` : ""}`); }
   return l.join("\n").trim();
+}
+
+/** Annule une retouche : la phrase d'origine de l'utilisateur reprend sa place. */
+export function revertRewrite(cv: StructuredCV, index: number): StructuredCV {
+  const next = cloneStructuredCV(cv);
+  const rw = next.rewrites?.[index];
+  if (!rw || rw.reverted) return next;
+  if (rw.target === "summary") {
+    next.summary = rw.original;
+  } else if (rw.experienceIndex !== undefined && rw.bulletIndex !== undefined) {
+    const bullets = next.experiences[rw.experienceIndex]?.bullets;
+    if (bullets && bullets[rw.bulletIndex] === rw.rewritten) bullets[rw.bulletIndex] = rw.original;
+  }
+  rw.reverted = true;
+  return next;
 }
 
 // ── Report ──
@@ -1569,7 +1603,7 @@ export interface GeneratedCvPairEvaluation {
   scoreModel: "generated_cv_v1" | "legacy_fallback";
 }
 
-export interface OptimizationReport { jobTitle: string; jobCompany: string; jobSeniority: string; jobDomain: string; detectedKeywords: { requiredSkills: string[]; preferredSkills: string[]; responsibilities: string[]; keywords: string[]; criticalKeywords: string[]; }; matchedSkills: string[]; missingSkills: string[]; selectedExperiences: { title: string; company: string; score: number; reason: string; matchedAspects: string[]; bulletCount: number; charBudget: number; }[]; rejectedExperiences: { title: string; company: string; score: number; reason: string }[]; selectedBullets: { text: string; experienceTitle: string; score: number; deterministicScore: number; llmScore: number; matchedKeywords: string[]; dimension: string; }[]; postRules: PostRuleResult; confidence: number; confidenceReasoning: string; fallbackUsed: boolean; detectedLanguage: "EN" | "FR"; positioning: string; intentions: string[]; productMaturity: string; complexityLevel: string; ownershipLevel: string; tips: string[]; diagnosis: DiagnosticSummary; scoreBreakdown: { fitOffer: number; ats: number; atsOptimized: number; atsBoost: number; contextSupport: number; semantic: number; recruiterCredibility: RecruiterCredibility; domainMismatch?: string; cappedByKeywords: boolean; cappedByEvidence: boolean; pertinence: number; fitMetier: number; fitNiveauFactor: number; fitNiveau?: GeneratedCvFitNiveau; forcePreuve: number; credibiliteCv: number; evidenceGrounding: number; recruiterCredibilityScore: number; atsReadiness: number; overstatementRisk: number; badge: BadgeLevel; distanceDomain: DistanceDomain; hardWarnings?: HardWarningCode[]; textIntegrityScore?: number; optimizationDecision?: "faithful_only" | "optimized_selected" | "optimized_rejected"; optimizationNotes?: string[]; variantStrategy?: "faithful" | "optimized_humain"; scoreModel?: "generated_cv_v1" | "legacy_fallback" | "profile_frame_v3"; debugOverlaps?: { workObjects: number; deliverables: number; decisions: number }; }; }
+export interface OptimizationReport { cvLanguage?: "FR" | "EN"; jobLanguage?: "FR" | "EN"; structuredCV?: StructuredCV; rewrites?: CvRewrite[]; jobTitle: string; jobCompany: string; jobSeniority: string; jobDomain: string; detectedKeywords: { requiredSkills: string[]; preferredSkills: string[]; responsibilities: string[]; keywords: string[]; criticalKeywords: string[]; }; matchedSkills: string[]; missingSkills: string[]; selectedExperiences: { title: string; company: string; score: number; reason: string; matchedAspects: string[]; bulletCount: number; charBudget: number; }[]; rejectedExperiences: { title: string; company: string; score: number; reason: string }[]; selectedBullets: { text: string; experienceTitle: string; score: number; deterministicScore: number; llmScore: number; matchedKeywords: string[]; dimension: string; }[]; postRules: PostRuleResult; confidence: number; confidenceReasoning: string; fallbackUsed: boolean; detectedLanguage: "EN" | "FR"; positioning: string; intentions: string[]; productMaturity: string; complexityLevel: string; ownershipLevel: string; tips: string[]; diagnosis: DiagnosticSummary; scoreBreakdown: { fitOffer: number; ats: number; atsOptimized: number; atsBoost: number; contextSupport: number; semantic: number; recruiterCredibility: RecruiterCredibility; domainMismatch?: string; cappedByKeywords: boolean; cappedByEvidence: boolean; pertinence: number; fitMetier: number; fitNiveauFactor: number; fitNiveau?: GeneratedCvFitNiveau; forcePreuve: number; credibiliteCv: number; evidenceGrounding: number; recruiterCredibilityScore: number; atsReadiness: number; overstatementRisk: number; badge: BadgeLevel; distanceDomain: DistanceDomain; hardWarnings?: HardWarningCode[]; textIntegrityScore?: number; optimizationDecision?: "faithful_only" | "optimized_selected" | "optimized_rejected"; optimizationNotes?: string[]; variantStrategy?: "faithful" | "optimized_humain"; scoreModel?: "generated_cv_v1" | "legacy_fallback" | "profile_frame_v3"; debugOverlaps?: { workObjects: number; deliverables: number; decisions: number }; }; }
 
 function topItems(items: string[], count: number): string[] {
   const tally = new Map<string, number>();
@@ -3388,6 +3422,11 @@ export async function runTailorPipeline(input: TailorInput, openai: OpenAI): Pro
   const introChars = sanitizedInput.introMaxChars || 400;
 
   const parsedJob = await parseJobDescription(sanitizedInput.jobText, openai);
+  // Une seule langue par CV : celle dans laquelle l'utilisateur a écrit ses
+  // arguments. Traduire ses phrases reviendrait à écrire à sa place.
+  const jobLanguage = parsedJob.language;
+  const cvLanguage = detectLanguage(sanitizedInput.allBullets.map(b => b.text));
+  parsedJob.language = cvLanguage;
   const scored = await hybridScoreAllBullets(parsedJob, sanitizedInput.allExperiences, sanitizedInput.allBullets, openai);
   const allocs = allocateCharBudget(sanitizedInput.allExperiences, scored, bodyChars);
   const faithfulSelExps = selectBullets(scored, allocs, parsedJob, { strategy: "faithful" });
@@ -3433,7 +3472,10 @@ export async function runTailorPipeline(input: TailorInput, openai: OpenAI): Pro
       optimizedBaseCv.summary = optimizedBaseCv.summary.slice(0, introChars).replace(/[,;]?\s*\S*$/, "").trim();
     }
 
-    const candidateCv = await composeCVDocument(cloneStructuredCV(optimizedBaseCv), parsedJob, openai);
+    const candidateCv = await composeCVDocument(cloneStructuredCV(optimizedBaseCv), parsedJob, openai, {
+      candidates: pickRewriteCandidates(optimizedBaseCv, optimizedSelExps),
+      rewriteSummary: true,
+    });
     const candidateReportCv = cloneStructuredCV(candidateCv);
     const candidatePostRules = applyPostRules(candidateReportCv, parsedJob);
     const candidateRawReport = generateOptimizationReport(parsedJob, optimizedSelExps, sanitizedInput.allSkills, candidatePostRules, candidateReportCv);
@@ -3540,6 +3582,18 @@ export async function runTailorPipeline(input: TailorInput, openai: OpenAI): Pro
   }
 
   const cvText = finalCv === baselineCv ? baselineText : renderCVText(finalCv, parsedJob);
+  const languageTip = jobLanguage !== cvLanguage
+    ? [`L'offre est en ${jobLanguage === "EN" ? "anglais" : "français"}, ta bibliothèque en ${cvLanguage === "EN" ? "anglais" : "français"} : le CV reste dans ta langue. Ajoute des formulations ${jobLanguage} dans la bibliothèque pour candidater dans la langue de l'offre.`]
+    : [];
+  finalReport = {
+    ...finalReport,
+    cvLanguage,
+    jobLanguage,
+    detectedLanguage: jobLanguage,
+    structuredCV: finalCv,
+    rewrites: finalCv.rewrites || [],
+    tips: [...languageTip, ...finalReport.tips],
+  };
   log(`Pipeline Done - pertinence=${finalReport.scoreBreakdown.pertinence}% badge=${finalReport.scoreBreakdown.badge} | ${parsedJob.positioning} | ${cvText.length} chars`);
   return {
     cvText,

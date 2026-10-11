@@ -55,6 +55,7 @@ export interface IStorage {
   // Runs
   createRun(userId: number, run: InsertRun): Promise<Run>;
   getRun(userId: number, id: string): Promise<RunResponse | undefined>;
+  updateRunOutput(userId: number, id: string, outputCvText: string, outputReportJson?: unknown): Promise<Run | undefined>;
   getRuns(userId: number): Promise<RunResponse[]>;
 }
 
@@ -219,6 +220,14 @@ export class DatabaseStorage implements IStorage {
     if (!run) return undefined;
     const [jobPost] = await db.select().from(jobPosts).where(eq(jobPosts.id, run.jobPostId));
     return { ...run, jobPost };
+  }
+  async updateRunOutput(userId: number, id: string, outputCvText: string, outputReportJson?: unknown) {
+    const set: Partial<Run> = { outputCvText };
+    if (outputReportJson !== undefined) set.outputReportJson = outputReportJson as Run["outputReportJson"];
+    const [updated] = await db.update(runs).set(set)
+      .where(and(eq(runs.id, id), eq(runs.userId, userId)))
+      .returning();
+    return updated;
   }
   async getRuns(userId: number): Promise<RunResponse[]> {
     const rows = await db

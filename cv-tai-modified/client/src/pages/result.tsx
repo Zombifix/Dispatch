@@ -15,6 +15,8 @@ import {
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { api } from "@shared/routes";
 
 function decodeUtf8FromLatin1(text: string): string {
   try {
@@ -2299,6 +2301,54 @@ function TabbedCoveragePanel({
   );
 }
 
+type CvRewriteView = { target: "summary" | "bullet"; original: string; rewritten: string; reason: string; reverted?: boolean };
+
+// Retouches faites par l'IA : visibles, motivées, réversibles une par une.
+function RewritesPanel({ runId, rewrites }: { runId: string; rewrites: CvRewriteView[] }) {
+  const { toast } = useToast();
+  const revert = useMutation({
+    mutationFn: (index: number) => apiRequest("POST", `/api/runs/${runId}/rewrites/${index}/revert`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.tailor.getRun.path, runId] });
+      toast({ title: "Formulation d'origine rétablie" });
+    },
+    onError: (e: Error) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
+  });
+  if (!rewrites.length) {
+    return (
+      <div className="border-t border-[rgba(225,231,239,0.6)] px-6 py-4 text-[12px] text-[#64748b]" data-testid="section-rewrites-empty">
+        Aucune phrase n'a été retouchée par l'IA : ce CV est composé uniquement de tes formulations.
+      </div>
+    );
+  }
+  return (
+    <div className="border-t border-[rgba(225,231,239,0.6)] px-6 py-5 space-y-3" data-testid="section-rewrites">
+      <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#64748b]">
+        Retouches IA ({rewrites.filter(r => !r.reverted).length}/{rewrites.length} actives)
+      </p>
+      {rewrites.map((rw, i) => (
+        <div key={i} className={`rounded-lg border p-3 text-[13px] ${rw.reverted ? "opacity-60 border-[#e2e8f0]" : "border-[#c7d2fe] bg-[#f8faff]"}`}>
+          <p className="text-[11px] text-[#64748b] mb-1">{rw.target === "summary" ? "Résumé" : "Bullet"} · {rw.reason}</p>
+          <p className="text-[#94a3b8] line-through decoration-[#cbd5e1]">{rw.original || "(vide)"}</p>
+          <p className="text-[#0f1729] mt-1">{rw.rewritten}</p>
+          <div className="mt-2 flex justify-end">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              disabled={rw.reverted || revert.isPending}
+              onClick={() => revert.mutate(i)}
+              data-testid={`button-revert-rewrite-${i}`}
+            >
+              {rw.reverted ? "Formulation d'origine conservée" : "Revenir à ma formulation"}
+            </Button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Result() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
@@ -2308,6 +2358,7 @@ export default function Result() {
   const [isEditing, setIsEditing] = useState(false);
   const [editedText, setEditedText] = useState<string | null>(null);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const { toast } = useToast();
 
   const displayText = repairMojibake(editedText ?? run?.outputCvText ?? "");
 
@@ -2326,6 +2377,17 @@ export default function Result() {
     setEditedText(null);
     setIsEditing(false);
   };
+
+  const saveEdit = useMutation({
+    mutationFn: (text: string) => apiRequest("PATCH", `/api/runs/${id}/cv`, { text }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: [api.tailor.getRun.path, id] });
+      setEditedText(null);
+      setIsEditing(false);
+      toast({ title: "CV enregistré" });
+    },
+    onError: (e: Error) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
+  });
 
   const handleTailorAgain = () => {
     const jobText = run?.jobPost?.rawText;
@@ -2617,6 +2679,16 @@ export default function Result() {
               ) : (
                 <div className="flex items-center justify-between w-full gap-3">
                   <span className="text-xs text-[#94a3b8] font-medium">Modification en cours</span>
+                  <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => editedText != null && saveEdit.mutate(editedText)}
+                    disabled={saveEdit.isPending || !editedText?.trim()}
+                    className="text-xs h-7 px-3"
+                    data-testid="button-save-edit"
+                  >
+                    {saveEdit.isPending ? "Enregistrement..." : "Enregistrer"}
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -2626,6 +2698,7 @@ export default function Result() {
                   >
                     <X className="w-3 h-3" /> Annuler
                   </Button>
+                  </div>
                 </div>
               )}
             </div>
@@ -2639,6 +2712,10 @@ export default function Result() {
                   className="w-full min-h-[500px] resize-y font-mono text-sm leading-relaxed border border-[#e2e8f0] rounded-xl p-4"
                 />
               </div>
+            )}
+
+            {!isEditing && run && (
+              <RewritesPanel runId={run.id} rewrites={((report as any)?.rewrites || []) as CvRewriteView[]} />
             )}
           </div>
 
