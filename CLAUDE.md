@@ -38,11 +38,17 @@ Un CV que l'utilisateur peut envoyer sans relecture lourde, qui passe le parsing
 | `server/assembler.ts` | assemblage déterministe (mode recommandé) |
 | `server/cv-lint.ts` | linter anti-CV générique |
 | `server/job-input.ts` | récupération et nettoyage des annonces |
-| `server/llm.ts` | accès LLM, cache, quotas |
-| `server/routes.ts` | API |
+| `server/engine/text.ts`, `server/engine/variants.ts` | utilitaires de texte, choix et validation des formulations |
+| `server/llm.ts` | client LLM unique, sorties validées, cache |
+| `server/exports.ts` | Word (ATS), JSON Resume, format Figma |
+| `server/safe-fetch.ts` | récupération d'URL protégée contre la SSRF |
+| `server/app.ts` / `server/index.ts` | construction de l'application / démarrage |
+| `server/routes.ts` | API (quota IA par utilisateur) |
+| `migrations/` | migrations versionnées, appliquées au démarrage |
 | `client/src/pages/library.tsx` | bibliothèque (faits, variantes) |
 | `client/src/pages/tailor.tsx`, `result.tsx` | génération et résultat |
-| `figma-plugin/` | plugin Figma privé de remplissage du template |
+| `figma-plugin/` | plugin Figma privé de remplissage du template (voir son README) |
+| `docs/DEPLOY_VPS.md` | déploiement Coolify, sauvegardes, reprise des données |
 
 ## Commandes
 ```

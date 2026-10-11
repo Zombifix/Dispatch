@@ -19,6 +19,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createLlmClient } from "../server/llm";
 import { runTailorPipeline, type TailorInput } from "../server/tailoring-engine";
+import { assembleCv } from "../server/assembler";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -77,11 +78,18 @@ async function exportCorpus(userArg?: string) {
   const profileRows = await db.select().from(schema.profile).where(eq(schema.profile.userId, user.id));
   const formations = await db.select().from(schema.formations).where(eq(schema.formations.userId, user.id));
   const languagesRows = await db.select().from(schema.languages).where(eq(schema.languages.userId, user.id));
+  const bulletIds = new Set(bullets.map(b => b.id));
+  const bulletVariants = (await db.select().from(schema.bulletVariants)).filter(v => bulletIds.has(v.bulletId));
+  const profileVariants = await db.select().from(schema.profileVariants).where(eq(schema.profileVariants.userId, user.id));
 
   fs.mkdirSync(OFFERS_DIR, { recursive: true });
   fs.writeFileSync(
     path.join(CORPUS_DIR, "library.json"),
-    JSON.stringify({ experiences, bullets, skills, profile: profileRows[0] || null, formations, languages: languagesRows }, null, 2),
+    JSON.stringify({
+      experiences,
+      bullets: bullets.map(({ embedding: _e, embeddingKey: _k, ...b }) => b),
+      skills, profile: profileRows[0] || null, formations, languages: languagesRows, bulletVariants, profileVariants,
+    }, null, 2),
     "utf8",
   );
   console.log(`[EVAL] library.json écrit (${experiences.length} exps, ${bullets.length} bullets, ${skills.length} skills)`);
@@ -137,7 +145,8 @@ async function main() {
 
   for (const file of offerFiles) {
     const offer: OfferFile = JSON.parse(fs.readFileSync(path.join(OFFERS_DIR, file), "utf8"));
-    const name = offer.name || file.replace(/\.json$/, "");
+    // Le nom de fichier fait foi (la procédure demande de renommer les offres exportées).
+    const name = file.replace(/\.json$/, "");
     console.log(`\n[EVAL] ▶ ${name} (${offer.jobText.length} chars)`);
     const baseInput: Omit<TailorInput, "mode"> = {
       jobText: offer.jobText,
@@ -157,6 +166,15 @@ async function main() {
       const fB = fidele.report.scoreBreakdown;
       const oB = optimise.report.scoreBreakdown;
 
+      // Mode assemblage : déterministe, à relire en priorité (c'est le mode par défaut).
+      const assembled = await assembleCv({
+        jobText: offer.jobText,
+        experiences: library.experiences, bullets: library.bullets, skills: library.skills,
+        bulletVariants: library.bulletVariants || [], profileVariants: library.profileVariants || [],
+        profile: library.profile || undefined, formations: library.formations || [], languages: library.languages || [],
+      }, openai);
+      fs.writeFileSync(path.join(outDir, `${name}.assemblage.txt`), assembled.cvText, "utf8");
+      fs.writeFileSync(path.join(outDir, `${name}.assemblage.details.json`), JSON.stringify(assembled.details, null, 2), "utf8");
       fs.writeFileSync(path.join(outDir, `${name}.fidele.txt`), fidele.cvText, "utf8");
       fs.writeFileSync(path.join(outDir, `${name}.optimise.txt`), optimise.cvText, "utf8");
       fs.writeFileSync(path.join(outDir, `${name}.report.json`), JSON.stringify({ fidele: fidele.report, optimise: optimise.report }, null, 2), "utf8");
@@ -165,7 +183,7 @@ async function main() {
       if (oB.pertinence < fB.pertinence) {
         failures.push(`optimise (${oB.pertinence}) < fidele (${fB.pertinence}) — interdit`);
       }
-      const expected = expectedForOffer(offer);
+      const expected = expectedForOffer({ ...offer, name });
       if (expected) {
         for (const [label, b] of [["fidele", fB], ["optimise", oB]] as const) {
           if (b.pertinence < expected.min || b.pertinence > expected.max) {
