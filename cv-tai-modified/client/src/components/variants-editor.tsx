@@ -78,6 +78,7 @@ export function BulletVariantsEditor({ bulletId, baseText }: { bulletId: string;
             </button>
           </div>
           <Textarea
+            key={`${v.id}-${new Date(v.updatedAt).getTime()}`}
             defaultValue={v.text}
             className="min-h-[60px] text-sm"
             onBlur={e => {
@@ -164,6 +165,11 @@ export function ProfileVariantsEditor() {
   const [language, setLanguage] = useState<CvLanguage>("FR");
   const list = data?.profileVariants || [];
   const find = (kind: "title" | "summary", angle: Angle) => list.find(v => v.kind === kind && v.angle === angle && v.language === language);
+  // Clé de remontage : un champ reflète toujours la dernière valeur enregistrée.
+  const fieldKey = (kind: "title" | "summary", angle: Angle) => {
+    const v = find(kind, angle);
+    return `${kind}-${angle}-${language}-${v ? new Date(v.updatedAt).getTime() : "vide"}`;
+  };
 
   const commit = async (kind: "title" | "summary", angle: Angle, text: string) => {
     const existing = find(kind, angle);
@@ -189,13 +195,15 @@ export function ProfileVariantsEditor() {
           ))}
         </div>
       </div>
-      {ANGLE_OPTIONS.map(a => (
+      {!data ? (
+        <p className="text-xs text-muted-foreground">Chargement…</p>
+      ) : ANGLE_OPTIONS.map(a => (
         <div key={`${a.value}-${language}`} className="grid gap-2 md:grid-cols-[150px_1fr]">
           <p className="text-xs font-medium text-muted-foreground pt-2">{a.label}</p>
           <div className="space-y-1.5">
-            <Input defaultValue={find("title", a.value)?.text || ""} placeholder="Titre (ex : Lead Product Designer)" className="h-8 text-sm"
+            <Input key={fieldKey("title", a.value)} defaultValue={find("title", a.value)?.text || ""} placeholder="Titre (ex : Lead Product Designer)" className="h-8 text-sm"
               onBlur={e => commit("title", a.value, e.target.value)} />
-            <Textarea defaultValue={find("summary", a.value)?.text || ""} placeholder="Résumé pour cet angle (2-3 phrases, tes mots)" className="min-h-[56px] text-sm"
+            <Textarea key={fieldKey("summary", a.value)} defaultValue={find("summary", a.value)?.text || ""} placeholder="Résumé pour cet angle (2-3 phrases, tes mots)" className="min-h-[56px] text-sm"
               onBlur={e => commit("summary", a.value, e.target.value)} />
           </div>
         </div>

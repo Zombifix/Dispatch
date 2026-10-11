@@ -70,11 +70,19 @@ export async function checkLLMHealth(openai: OpenAI | null): Promise<LLMHealthRe
 }
 
 // ── Shared helpers ──
-function normalizeSkillKey(s: string): string {
+/** Date d'expérience lisible ; pas de date de fin = poste actuel. */
+export function formatExperienceDate(d: string | null | undefined, lang: "FR" | "EN"): string {
+  if (!d) return lang === "FR" ? "Aujourd'hui" : "Present";
+  const date = new Date(d);
+  if (Number.isNaN(date.getTime())) return d;
+  return date.toLocaleDateString(lang === "FR" ? "fr-FR" : "en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+export function normalizeSkillKey(s: string): string {
   return s.toLowerCase().replace(/[/\-]/g, " ").replace(/\s+/g, " ").replace(/s$/, "").trim();
 }
 
-function cloneStructuredCV(cv: StructuredCV): StructuredCV {
+export function cloneStructuredCV(cv: StructuredCV): StructuredCV {
   return {
     ...cv,
     rewrites: (cv.rewrites || []).map(r => ({ ...r })),
@@ -179,7 +187,7 @@ export interface CompositionPlan { targetTitle: string; summary: string; section
 export interface CvRewrite { target: "summary" | "bullet"; experienceIndex?: number; bulletIndex?: number; original: string; rewritten: string; reason: string; reverted?: boolean; }
 export interface StructuredCV { name?: string; targetTitle: string; summary: string; summarySource?: "profile" | "generated"; experiences: { title: string; company: string; contractType?: string; dates: string; bullets: string[]; description?: string; }[]; skills: string[]; formations: { degree: string; school: string; year?: string }[]; languages: { name: string; level?: string }[]; rewrites?: CvRewrite[]; }
 
-function sanitizeStructuredCV(cv: StructuredCV): StructuredCV {
+export function sanitizeStructuredCV(cv: StructuredCV): StructuredCV {
   return {
     ...cv,
     name: sanitizeOptionalTextValue(cv.name),
@@ -296,7 +304,7 @@ Important: roleFrame must describe the REAL WORK in the body of the posting, not
 }
 
 // ── Step 2: Hybrid Score ──
-function inferDimension(tags: string[]): string {
+export function inferDimension(tags: string[]): string {
   const t = tags.map(x => x.toLowerCase());
   if (t.some(x => ["impact","chiffres","resultats","metrics","kpi","conversion","revenue"].includes(x))) return "impact";
   if (t.some(x => ["collaboration","stakeholders","equipe","alignement","communication"].includes(x))) return "collaboration";
@@ -403,7 +411,7 @@ function bulletEmbeddingText(sb: ScoredBullet): string {
   return `${sb.experience.title}. ${sb.bullet.text}${(sb.bullet.tags || []).length ? ` (${(sb.bullet.tags || []).join(", ")})` : ""}`;
 }
 
-async function applySemanticScores(scored: ScoredBullet[], job: ParsedJob, openai: OpenAI, store?: EmbeddingStore): Promise<void> {
+export async function applySemanticScores(scored: ScoredBullet[], job: ParsedJob, openai: OpenAI, store?: EmbeddingStore): Promise<void> {
   const facets = buildJobFacets(job);
   if (facets.length === 0 || scored.length === 0) return;
   try {
@@ -836,7 +844,7 @@ GROUNDING RULES:
     }
   }
 
-  const fmtDate = (d: string | null | undefined, lang: string) => { if (!d) return "Present"; try { return new Date(d).toLocaleDateString(lang === "FR" ? "fr-FR" : "en-US", { month: "short", year: "numeric" }); } catch { return d; } };
+  const fmtDate = (d: string | null | undefined, lang: string) => formatExperienceDate(d, lang === "FR" ? "FR" : "EN");
   return sanitizeStructuredCV({
     // Titre : celui que l'utilisateur s'est donné, jamais celui de l'offre.
     name: extras?.profileName || undefined,

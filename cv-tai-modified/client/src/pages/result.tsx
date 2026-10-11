@@ -26,19 +26,25 @@ function decodeUtf8FromLatin1(text: string): string {
   }
 }
 
+// Séquences typiques d'un texte UTF-8 relu en latin-1 (« Ã© », « â€™ »...).
+// Un « â » isolé est du français normal (grâce, tâche) : il ne doit rien déclencher.
+const MOJIBAKE_SEQUENCE = /\u00C3[\u0080-\u00BF]|\u00C2[\u0080-\u00BF]|\u00E2\u20AC|\u00E2\u0080/g;
+
 function repairMojibake(text: string): string {
   let repaired = String(text ?? "");
 
   for (let i = 0; i < 2; i += 1) {
-    if (!/[\u00C3\u00C2\u00E2]/.test(repaired)) break;
+    const before = (repaired.match(MOJIBAKE_SEQUENCE) || []).length;
+    if (before === 0) break;
     const decoded = decodeUtf8FromLatin1(repaired);
-    if (!decoded || decoded === repaired) break;
+    const after = (decoded.match(MOJIBAKE_SEQUENCE) || []).length;
+    // On n'accepte le décodage que s'il réduit les artefacts sans en créer.
+    if (!decoded || decoded === repaired || decoded.includes("\uFFFD") || after >= before) break;
     repaired = decoded;
   }
 
   return repaired
     .replace(/\u00a0/g, " ")
-    .replace(/\u00c2/g, "")
     .replace(/\r/g, "");
 }
 
@@ -260,6 +266,7 @@ function FormattedCV({ text, keywords = [] }: { text: string; keywords?: string[
 // ── Report Sections ──
 
 const MODE_META: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
+  assembly: { label: "Assemblage", icon: <ShieldCheck className="w-3 h-3" />, color: "bg-[#eef0ff] text-[#4e5bf2]" },
   original: { label: "Fidele", icon: <ShieldCheck className="w-3 h-3" />, color: "bg-primary/10 text-primary" },
   polished: { label: "Optimise", icon: <Zap className="w-3 h-3" />, color: "bg-accent/10 text-accent" },
   adaptive: { label: "Adaptatif", icon: <RefreshCw className="w-3 h-3" />, color: "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400" },
@@ -2112,6 +2119,99 @@ function RewritesPanel({ runId, rewrites }: { runId: string; rewrites: CvRewrite
   );
 }
 
+type AssemblyView = {
+  angle: string; angleSource: string; language: string; languageSource: string; jobReading: string;
+  coverage: { covered: string[]; missing: string[]; percent: number };
+  bullets: { experienceIndex: number; bulletIndex: number; text: string; variant: string; reasons: string[] }[];
+  missingVariants: { text: string; wanted: string }[];
+  missingProfile: string[];
+  droppedForLanguage: number;
+  lint: { rule: string; severity: string; message: string; excerpt?: string }[];
+};
+
+const ANGLE_LABEL: Record<string, string> = { ic: "Craft / delivery", lead: "Lead / vision", consultant: "Conseil", manager: "Management" };
+
+// Mode assemblage : ce qui a été choisi et pourquoi, sans score opaque.
+function AssemblyPanel({ runId, view, rewrites }: { runId: string; view: AssemblyView; rewrites: CvRewriteView[] }) {
+  const { toast } = useToast();
+  const align = useMutation({
+    mutationFn: (b: { experienceIndex: number; bulletIndex: number }) => apiRequest("POST", `/api/runs/${runId}/align`, b),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.tailor.getRun.path, runId] });
+      toast({ title: "Retouche proposée", description: "Visible dans « Retouches IA », annulable." });
+    },
+    onError: (e: Error) => toast({ title: "Pas de retouche", description: e.message.replace(/^\d+: /, ""), variant: "destructive" }),
+  });
+  const retouched = new Set(rewrites.filter(r => !r.reverted).map(r => r.original));
+  return (
+    <div className="space-y-4" data-testid="section-assembly">
+      <div className="rounded-[12px] border border-[rgba(225,231,239,0.7)] bg-white p-4 space-y-2">
+        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#64748b]">Assemblage</p>
+        <p className="text-[13px] text-[#0f1729]">
+          Angle <strong>{ANGLE_LABEL[view.angle] || view.angle}</strong> ({view.angleSource === "choix" ? "choisi" : "déduit de l'offre"}),
+          langue <strong>{view.language}</strong> ({view.languageSource === "choix" ? "choisie" : view.languageSource === "offre" ? "celle de l'offre" : "celle de ta bibliothèque"}).
+        </p>
+        <p className="text-[12px] text-[#64748b]">
+          Lecture de l'offre : {view.jobReading === "llm" ? "IA (mise en cache)" : "déterministe, sans IA"}. Toutes les phrases viennent de ta bibliothèque.
+        </p>
+      </div>
+
+      <div className="rounded-[12px] border border-[rgba(225,231,239,0.7)] bg-white p-4 space-y-2">
+        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#64748b]">Exigences de l'offre ({view.coverage.percent} % couvertes)</p>
+        <div className="flex flex-wrap gap-1.5">
+          {view.coverage.covered.map(k => <span key={k} className="rounded-full bg-green-50 px-2 py-0.5 text-[12px] text-green-700">{k}</span>)}
+          {view.coverage.missing.map(k => <span key={k} className="rounded-full bg-amber-50 px-2 py-0.5 text-[12px] text-amber-700">{k}</span>)}
+        </div>
+        {view.coverage.missing.length > 0 && (
+          <p className="text-[12px] text-[#64748b]">En orange : rien dans ta bibliothèque ne le prouve. Le CV ne l'invente pas ; ajoute un fait si c'est vrai.</p>
+        )}
+      </div>
+
+      {view.lint.length > 0 && (
+        <div className="rounded-[12px] border border-amber-200 bg-amber-50/40 p-4 space-y-1.5" data-testid="section-lint">
+          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-amber-700">Relecture automatique ({view.lint.length})</p>
+          {view.lint.map((i, n) => (
+            <p key={n} className="text-[12px] text-[#0f1729]">• {i.message}{i.excerpt ? <span className="text-[#64748b]"> « {i.excerpt.slice(0, 80)}{i.excerpt.length > 80 ? "…" : ""} »</span> : null}</p>
+          ))}
+        </div>
+      )}
+
+      <div className="rounded-[12px] border border-[rgba(225,231,239,0.7)] bg-white p-4 space-y-3">
+        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#64748b]">Pourquoi chaque ligne</p>
+        {view.bullets.map((b, n) => (
+          <div key={n} className="border-l-2 border-[#e2e8f0] pl-3">
+            <p className="text-[13px] text-[#0f1729]">{b.text}</p>
+            <div className="flex items-center justify-between gap-2 mt-1">
+              <p className="text-[11px] text-[#64748b]">{b.reasons.join(" · ")}</p>
+              {!retouched.has(b.text) && (
+                <button
+                  className="text-[11px] text-[#4e5bf2] hover:underline disabled:opacity-50 whitespace-nowrap"
+                  disabled={align.isPending}
+                  onClick={() => align.mutate({ experienceIndex: b.experienceIndex, bulletIndex: b.bulletIndex })}
+                  data-testid={`button-align-${n}`}
+                >
+                  Rapprocher de l'offre
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {(view.missingVariants.length > 0 || view.missingProfile.length > 0 || view.droppedForLanguage > 0) && (
+        <div className="rounded-[12px] border border-[rgba(225,231,239,0.7)] bg-[rgba(241,245,249,0.4)] p-4 space-y-1.5">
+          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#64748b]">À compléter dans la bibliothèque</p>
+          {view.missingProfile.includes("title") && <p className="text-[12px]">• Un titre « {ANGLE_LABEL[view.angle] || view.angle} » en {view.language}.</p>}
+          {view.missingProfile.includes("summary") && <p className="text-[12px]">• Un résumé « {ANGLE_LABEL[view.angle] || view.angle} » en {view.language}.</p>}
+          {view.droppedForLanguage > 0 && <p className="text-[12px]">• {view.droppedForLanguage} fait(s) écarté(s) faute de formulation en {view.language}.</p>}
+          {view.missingVariants.map((m, n) => <p key={n} className="text-[12px] text-[#64748b]">• Formulation {m.wanted} pour « {m.text.slice(0, 70)}… »</p>)}
+          <Link href="/library"><span className="text-[12px] text-[#4e5bf2] hover:underline cursor-pointer">Ouvrir la bibliothèque</span></Link>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Result() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
@@ -2230,6 +2330,7 @@ export default function Result() {
     return hasContent ? candidate : undefined;
   })();
   const modeMeta = MODE_META[run.mode] || MODE_META.polished;
+  const assembly = (report as any)?.mode === "assembly" ? ((report as any).assembly as AssemblyView) : null;
 
   const pageTitle = repairMojibake([report?.jobTitle, report?.jobCompany].filter(Boolean).join(" - ") || "Tailored CV");
   const keyInsight = repairMojibake(report?.confidenceReasoning || "") || null;
@@ -2286,7 +2387,7 @@ export default function Result() {
               <div className="flex-shrink-0 flex flex-col items-center gap-0.5">
                 <ConfidenceRing value={displayScore} size={68} />
                 <span className="text-[10px] font-semibold uppercase tracking-[0.5px] text-[#65758b]">
-                  Pertinence
+                  {assembly ? "Couverture" : "Pertinence"}
                 </span>
               </div>
             )}
@@ -2520,8 +2621,12 @@ export default function Result() {
               </Button>
             </div>
 
+            {assembly && (
+              <AssemblyPanel runId={run.id} view={assembly} rewrites={((report as any)?.rewrites || []) as CvRewriteView[]} />
+            )}
+
             {/* 3. Fit / score card */}
-            {displayScore != null && (
+            {!assembly && displayScore != null && (
               <MatchDiagnosisCard
                 score={displayScore}
                 diagnosis={safeDiagnosis}
@@ -2542,11 +2647,11 @@ export default function Result() {
             />
 
             {/* 5. Renforcer les experiences */}
-            <EnrichmentCoaching
+            {!assembly && <EnrichmentCoaching
               report={report}
               selectedExperienceIds={run.selectedExperienceIds}
               jobTitle={report?.jobTitle}
-            />
+            />}
 
             {/* 6. Library health */}
             <LibraryHealthAccordion
@@ -2557,7 +2662,7 @@ export default function Result() {
             />
 
             {/* 7. Debug & metriques */}
-            <DetailsDisclosure report={report || {}} scoreBreakdown={report?.scoreBreakdown} />
+            {!assembly && <DetailsDisclosure report={report || {}} scoreBreakdown={report?.scoreBreakdown} />}
 
           </div>
         </div>

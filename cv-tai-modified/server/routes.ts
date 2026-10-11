@@ -15,6 +15,8 @@ import {
   runFastDryRun,
   renderCV,
   revertRewrite,
+  parseJobDescription,
+  composeCVDocument,
   type OptimizationReport,
 } from "./tailoring-engine";
 import { createUser, getUserByEmail } from "./auth";
@@ -22,6 +24,7 @@ import { resolveJobInput } from "./job-input";
 import { createLlmClient, completeJson, LLM_MODELS } from "./llm";
 import { ANGLES, CV_LANGUAGES, variantInputSchema, type User } from "@shared/schema";
 import { validateVariant } from "./engine/variants";
+import { assembleCv, buildAssemblyReport } from "./assembler";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (req.isAuthenticated()) return next();
@@ -978,7 +981,7 @@ JSON uniquement :
   // Tailor — Pipeline V2
   app.post(api.tailor.generate.path, async (req, res) => {
     try {
-      const { url, text, mode, outputLength, customMaxChars, introMaxChars, bodyMaxChars, extraContext } = api.tailor.generate.input.parse(req.body);
+      const { url, text, mode, outputLength, customMaxChars, introMaxChars, bodyMaxChars, extraContext, angle, language } = api.tailor.generate.input.parse(req.body);
       const resolvedInput = await resolveJobInput({ url, text, extraContext });
       if (!resolvedInput.ok) {
         return res.status(400).json({
@@ -987,11 +990,45 @@ JSON uniquement :
           jobInput: resolvedInput.metadata,
         });
       }
+      const userId = uid(req);
+
+      // Mode assemblage : déterministe, fonctionne aussi sans clé IA.
+      if (mode === "assembly") {
+        const [allExps, allBullets, allSkills, profileData, formationRows, langRows, variants] = await Promise.all([
+          storage.getExperiences(userId), storage.getAllBullets(userId), storage.getSkills(userId),
+          storage.getProfile(userId), storage.getFormations(userId), storage.getLanguages(userId),
+          Promise.all([storage.getBulletVariants(userId), storage.getProfileVariants(userId)]),
+        ]);
+        if (allExps.length === 0) return res.status(400).json({ message: "Ta bibliothèque est vide : ajoute d'abord des expériences." });
+        const assembled = await assembleCv({
+          jobText: resolvedInput.effectiveJobText,
+          experiences: allExps, bullets: allBullets, skills: allSkills,
+          bulletVariants: variants[0], profileVariants: variants[1],
+          profile: profileData ? { name: profileData.name, title: profileData.title, summary: profileData.summary } : undefined,
+          formations: formationRows, languages: langRows,
+          bodyMaxChars: bodyMaxChars || customMaxChars, angle, language,
+          embeddingStore: embeddingStoreFor(userId),
+        }, openai);
+        const jobPost = await storage.createJobPost(userId, {
+          url: resolvedInput.metadata.normalizedUrl,
+          rawText: resolvedInput.effectiveJobText,
+          extractedJson: { jobInput: resolvedInput.metadata } as any,
+        });
+        const run = await storage.createRun(userId, {
+          jobPostId: jobPost.id,
+          mode,
+          selectedExperienceIds: assembled.selectedExperienceIds,
+          selectedBulletIds: assembled.selectedBulletIds,
+          outputCvText: assembled.cvText,
+          outputReportJson: buildAssemblyReport(assembled) as any,
+        });
+        return res.status(201).json(run);
+      }
+
       if (!openai) {
-        return res.status(500).json({ message: "AI service not configured. Please set OPENAI_API_KEY." });
+        return res.status(503).json({ message: "Service IA non configuré : utilise le mode Assemblage ou ajoute une clé." });
       }
       // Load all data
-      const userId = uid(req);
       const allExps = await storage.getExperiences(userId);
       const allBullets = await storage.getAllBullets(userId);
       const allSkills = await storage.getSkills(userId);
@@ -1052,6 +1089,43 @@ JSON uniquement :
     const run = await storage.updateRunOutput(uid(req), req.params.id, parsed.data.text);
     if (!run) return res.status(404).json({ message: "Not found" });
     res.json(run);
+  });
+
+  // Rapproche UN bullet du vocabulaire de l'offre, à la demande. La retouche
+  // est validée par code, tracée et annulable comme les autres.
+  app.post("/api/runs/:id/align", async (req, res) => {
+    const userId = uid(req);
+    const parsed = z.object({ experienceIndex: z.number().int().min(0), bulletIndex: z.number().int().min(0) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Bullet invalide." });
+    if (!openai) return res.status(503).json({ message: "Service IA non configuré." });
+    const run = await storage.getRun(userId, req.params.id);
+    if (!run) return res.status(404).json({ message: "Not found" });
+    const report = run.outputReportJson as OptimizationReport | null;
+    const cv = report?.structuredCV;
+    if (!cv || !cv.experiences[parsed.data.experienceIndex]?.bullets[parsed.data.bulletIndex]) {
+      return res.status(400).json({ message: "Bullet introuvable dans ce CV." });
+    }
+    const already = (report.rewrites || []).some(r => r.target === "bullet" && !r.reverted
+      && r.experienceIndex === parsed.data.experienceIndex && r.bulletIndex === parsed.data.bulletIndex);
+    if (already) return res.status(409).json({ message: "Ce bullet a déjà été retouché." });
+    try {
+      const job = await parseJobDescription(run.jobPost?.rawText || "", openai);
+      job.language = report.cvLanguage || job.language;
+      const before = (cv.rewrites || report.rewrites || []).length;
+      const next = await composeCVDocument({ ...cv, rewrites: report.rewrites || cv.rewrites || [] }, job, openai, {
+        candidates: [{ ...parsed.data, reason: "rapproché du vocabulaire de l'offre à ta demande" }],
+        rewriteSummary: false,
+      });
+      if ((next.rewrites || []).length === before) {
+        return res.status(422).json({ message: "Aucune retouche honnête trouvée : la phrase reste la tienne." });
+      }
+      const text = renderCV(next, report.cvLanguage || "FR");
+      const updated = await storage.updateRunOutput(userId, run.id, text, { ...report, structuredCV: next, rewrites: next.rewrites });
+      res.json(updated);
+    } catch (err: any) {
+      console.error("[ALIGN] Error:", err.message);
+      res.status(502).json({ message: "Retouche indisponible pour le moment." });
+    }
   });
 
   // Annule une retouche IA : la formulation d'origine de l'utilisateur revient.

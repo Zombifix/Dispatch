@@ -21,7 +21,7 @@ export const KEYWORD_ALIAS_GROUPS: KeywordAliasGroup[] = [
   {
     key: "user_research",
     labels: { FR: "recherche utilisateur", EN: "user research" },
-    variants: ["user research", "recherche utilisateur", "tests utilisateurs", "test utilisateur", "usability testing", "user interviews", "interviews utilisateurs", "ux research"],
+    variants: ["user research", "recherche utilisateur", "tests utilisateurs", "test utilisateur", "usability testing", "user interviews", "interviews utilisateurs", "entretiens utilisateurs", "entretien utilisateur", "ux research"],
   },
   {
     key: "design_system",
@@ -230,4 +230,17 @@ export function detectLanguage(texts: string[]): "FR" | "EN" {
   const fr = (corpus.match(FR_MARKERS) || []).length + (corpus.match(/[éèàùçê]/g) || []).length * 0.5;
   const en = (corpus.match(EN_MARKERS) || []).length;
   return en > fr ? "EN" : "FR";
+}
+
+/** Dédoublonne des libellés équivalents (casse, accents, alias : « Design System » = « design system »). */
+export function dedupeKeywords(items: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of items) {
+    const key = findKeywordAliasGroup(item)?.key || normalizeEvidenceText(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
 }

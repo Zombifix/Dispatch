@@ -156,7 +156,9 @@ export const api = {
       input: z.object({
         url: z.string().optional(),
         text: z.string().optional(),
-        mode: z.enum(["original", "polished", "adaptive"]),
+        mode: z.enum(["assembly", "original", "polished", "adaptive"]),
+        angle: z.enum(["ic", "lead", "consultant", "manager"]).optional(),
+        language: z.enum(["FR", "EN"]).optional(),
         outputLength: z.enum(["compact", "balanced", "detailed"]).optional(),
         customMaxChars: z.number().int().min(500).max(10000).optional(),
         introMaxChars: z.number().int().min(50).max(2000).optional(),

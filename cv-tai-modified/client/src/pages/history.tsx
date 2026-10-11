@@ -55,6 +55,11 @@ function getTrackingMeta(run: any) {
 }
 
 const MODE_META = {
+  assembly: {
+    label: "Assemblage",
+    icon: <ShieldCheck className="h-3 w-3" />,
+    className: "bg-[#eef0ff] text-[#4e5bf2]",
+  },
   original: {
     label: "Fidele",
     icon: <ShieldCheck className="h-3 w-3" />,

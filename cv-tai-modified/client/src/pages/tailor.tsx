@@ -46,7 +46,9 @@ const FIELD_CLASS =
 const TEXTAREA_CLASS =
   "rounded-[26.638px] border-[rgba(225,231,239,0.7)] bg-white px-[15px] py-[18px] text-[16px] leading-[24px] text-[#0f1729] placeholder:text-[#65758b] focus-visible:ring-2 focus-visible:ring-[#6467f2]/20 focus-visible:ring-offset-0";
 
-type Mode = "fidele" | "optimise";
+type Mode = "assemblage" | "fidele" | "optimise";
+type AngleChoice = "auto" | "ic" | "lead" | "consultant" | "manager";
+type LanguageChoice = "auto" | "FR" | "EN";
 type InputMode = "lien" | "texte";
 type PrecheckVerdict = "go" | "prudence" | "faible_chance";
 
@@ -234,7 +236,9 @@ export default function Tailor() {
 
   const [url, setUrl] = useState("");
   const [text, setText] = useState("");
-  const [mode, setMode] = useState<Mode>("optimise");
+  const [mode, setMode] = useState<Mode>("assemblage");
+  const [angle, setAngle] = useState<AngleChoice>("auto");
+  const [cvLanguage, setCvLanguage] = useState<LanguageChoice>("auto");
   const [inputMode, setInputMode] = useState<InputMode>("lien");
   const [urlConverted, setUrlConverted] = useState(false);
   const [introMaxChars, setIntroMaxChars] = useState("");
@@ -294,7 +298,7 @@ export default function Tailor() {
   const hasAnnouncement = Boolean(url.trim() || text.trim());
   const isBusy = checkMatch.isPending || generate.isPending;
   const verdictMeta = getPrecheckVerdictMeta(pendingConfirm?.verdict);
-  const fastLaneMode = mode === "optimise" ? "Optimise" : "Fidele";
+  const fastLaneMode = mode === "assemblage" ? "Assemblage" : mode === "optimise" ? "Optimise" : "Fidele";
   const fastLaneAnnouncement = hasAnnouncement ? "Renseignee" : "A remplir";
   const fastLaneLimits = introMaxChars || bodyMaxChars ? "Personnalisees" : "Auto";
 
@@ -314,13 +318,15 @@ export default function Tailor() {
       const run = await generate.mutateAsync({
         url: url || undefined,
         text: text || undefined,
-        mode: mode === "fidele" ? "original" : "polished",
+        mode: mode === "assemblage" ? "assembly" : mode === "fidele" ? "original" : "polished",
+        angle: mode === "assemblage" && angle !== "auto" ? angle : undefined,
+        language: mode === "assemblage" && cvLanguage !== "auto" ? cvLanguage : undefined,
         introMaxChars: introChars && introChars >= 50 ? introChars : undefined,
         bodyMaxChars: bodyChars && bodyChars >= 500 ? bodyChars : undefined,
         extraContext: extraContext.trim() || undefined,
       });
 
-      toast({ title: "CV généré", description: "Ton CV a été optimisé." });
+      toast({ title: "CV généré", description: mode === "assemblage" ? "Assemblé à partir de tes formulations." : "Sélection et retouches terminées." });
       setLocation(`/results/${run.id}`);
     } catch (error) {
       toast({ title: "Erreur", description: (error as Error).message, variant: "destructive" });
@@ -336,6 +342,11 @@ export default function Tailor() {
         description: "Colle une URL ou le texte de l'annonce.",
         variant: "destructive",
       });
+      return;
+    }
+
+    if (mode === "assemblage") {
+      await doGenerate();
       return;
     }
 
@@ -521,14 +532,52 @@ export default function Tailor() {
                       <h3 className="text-[20px] font-semibold tracking-[-0.024em] text-[#0f1729]">Mode</h3>
                     </div>
                     <p className="text-[16px] leading-[24.216px] text-[#65758b]">
-                      Reformule legerement pour mieux coller a l'annonce sans changer le fond.
+                      Assemblage : tes formulations, sans IA. Les autres modes utilisent l'IA pour lire et sélectionner.
                     </p>
                   </div>
 
                   <div className="mt-[19px] space-y-[14px]">
                     <ModeOption
+                      title="Assemblage"
+                      description="Tes propres formulations, choisies pour l'offre. Instantané, sans réécriture IA."
+                      icon={<FileText className="h-[19px] w-[19px] text-[#6467f2]" />}
+                      badge={
+                        <span className="rounded-full bg-[#6467f2] px-[10px] py-[4px] text-[12px] font-semibold uppercase tracking-[0.14em] text-[#f8fafc]">
+                          Recommande
+                        </span>
+                      }
+                      active={mode === "assemblage"}
+                      onClick={() => setMode("assemblage")}
+                    />
+
+                    {mode === "assemblage" ? (
+                      <div className="grid grid-cols-2 gap-3" data-testid="assembly-options">
+                        <label className="space-y-1 text-[13px] text-[#65758b]">
+                          <span>Angle</span>
+                          <select value={angle} onChange={e => setAngle(e.target.value as AngleChoice)}
+                            className="h-9 w-full rounded-xl border border-[rgba(225,231,239,0.9)] bg-white px-2 text-[14px] text-[#0f1729]">
+                            <option value="auto">Selon l'offre</option>
+                            <option value="ic">Craft / delivery</option>
+                            <option value="lead">Lead / vision</option>
+                            <option value="consultant">Conseil</option>
+                            <option value="manager">Management</option>
+                          </select>
+                        </label>
+                        <label className="space-y-1 text-[13px] text-[#65758b]">
+                          <span>Langue du CV</span>
+                          <select value={cvLanguage} onChange={e => setCvLanguage(e.target.value as LanguageChoice)}
+                            className="h-9 w-full rounded-xl border border-[rgba(225,231,239,0.9)] bg-white px-2 text-[14px] text-[#0f1729]">
+                            <option value="auto">Automatique</option>
+                            <option value="FR">Français</option>
+                            <option value="EN">Anglais</option>
+                          </select>
+                        </label>
+                      </div>
+                    ) : null}
+
+                    <ModeOption
                       title="Fidele"
-                      description="Ideal pour juger la selection brute de la library, sans reecriture."
+                      description="Sélection par l'IA, tes phrases telles quelles."
                       icon={<FileText className="h-[19px] w-[19px] text-[#65758b]" />}
                       badge={<span className="text-[13px] font-medium uppercase tracking-[0.18em] text-[#65758b]">Brut</span>}
                       active={mode === "fidele"}
@@ -537,13 +586,8 @@ export default function Tailor() {
 
                     <ModeOption
                       title="Optimise"
-                      description="Le meilleur mode pour candidater vite quand le fond est deja bon."
+                      description="Sélection par l'IA et jusqu'à 3 retouches de vocabulaire, chacune annulable."
                       icon={<Sparkles className="h-[19px] w-[19px] text-[#6467f2]" />}
-                      badge={
-                        <span className="rounded-full bg-[#6467f2] px-[10px] py-[4px] text-[12px] font-semibold uppercase tracking-[0.14em] text-[#f8fafc]">
-                          Recommande
-                        </span>
-                      }
                       active={mode === "optimise"}
                       onClick={() => setMode("optimise")}
                     />
