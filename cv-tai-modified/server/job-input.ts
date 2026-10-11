@@ -1,4 +1,5 @@
 import { normalizeLinkedInUrl } from "./tailoring-engine";
+import { validatePublicUrl, safeFetchText } from "./safe-fetch";
 
 // Récupération et nettoyage du texte d'une annonce (URL ou texte collé).
 // Module sans dépendance à la base : testable isolément.
@@ -138,15 +139,10 @@ export function stripHtmlTags(html: string): string {
 
 async function directFetchFallback(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url, {
-      headers: {
-        "Accept": "text/html,application/xhtml+xml",
-        "User-Agent": "Mozilla/5.0 (compatible; CVTailor/1.0)",
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return null;
-    const html = await res.text();
+    // Récupération protégée contre la SSRF (adresses internes refusées, voir safe-fetch.ts)
+    const res = await safeFetchText(url, { timeoutMs: 10_000, maxBytes: 2_000_000 });
+    if (!res || res.status < 200 || res.status >= 300) return null;
+    const html = res.text;
 
     // Try JSON-LD first (structured, clean)
     const jsonLdText = extractJsonLdJobPosting(html);
@@ -411,7 +407,12 @@ export async function resolveJobInput(params: { url?: string; text?: string; ext
   };
 
   if (!effectiveJobText && !normalizedUrl) {
-    return { ok: false, effectiveJobText: "", metadata, errorMessage: "Please provide a job description or URL." };
+    return { ok: false, effectiveJobText: "", metadata, errorMessage: "Colle le texte de l'annonce ou son lien." };
+  }
+  if (!effectiveJobText && normalizedUrl && !validatePublicUrl(normalizedUrl)) {
+    metadata.scrapeStatus = "failed";
+    metadata.scrapeMessage = "Ce lien n'est pas une adresse web publique. Colle le texte de l'annonce.";
+    return { ok: false, effectiveJobText: "", metadata, errorMessage: metadata.scrapeMessage };
   }
 
   if (!effectiveJobText && normalizedUrl) {

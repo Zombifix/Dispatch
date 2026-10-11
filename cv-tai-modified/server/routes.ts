@@ -19,7 +19,7 @@ import {
   composeCVDocument,
   type OptimizationReport,
 } from "./tailoring-engine";
-import { createUser, getUserByEmail } from "./auth";
+import { createUser, getUserByEmail, verifyPassword } from "./auth";
 import { resolveJobInput } from "./job-input";
 import { createLlmClient, completeJson, LLM_MODELS } from "./llm";
 import { ANGLES, CV_LANGUAGES, variantInputSchema, type User } from "@shared/schema";
@@ -57,6 +57,18 @@ const TAG_EVAL_SCHEMA = z.object({
   suggestion: str.nullable().optional(),
 });
 
+// Quota quotidien d'unités d'appel LLM par utilisateur (0 = illimité).
+const LLM_DAILY_QUOTA = Number(process.env.LLM_DAILY_QUOTA ?? 200);
+
+async function llmQuota(req: Request, res: Response, units: number): Promise<boolean> {
+  const { allowed } = await storage.consumeLlmQuota(uid(req), units, LLM_DAILY_QUOTA);
+  if (!allowed) {
+    res.status(429).json({ message: "Quota quotidien d'IA atteint. Le mode Assemblage reste disponible sans limite." });
+    return false;
+  }
+  return true;
+}
+
 function embeddingStoreFor(userId: number) {
   return {
     load: () => storage.getBulletEmbeddings(userId),
@@ -79,9 +91,11 @@ export async function registerRoutes(
   const RATE_LIMITS = {
     login:    { max: 5, windowMs: 15 * 60 * 1000 },   // 5 per 15 min
     register: { max: 3, windowMs: 60 * 60 * 1000 },   // 3 per 60 min
+    // Par compte visé, quelle que soit l'IP (attaques distribuées sur un même email)
+    account:  { max: 10, windowMs: 15 * 60 * 1000 },
   } as const;
 
-  function checkRateLimit(ip: string, action: "login" | "register"): boolean {
+  function checkRateLimit(ip: string, action: "login" | "register" | "account"): boolean {
     const key = `${action}:${ip}`;
     const limit = RATE_LIMITS[action];
     const now = Date.now();
@@ -94,18 +108,19 @@ export async function registerRoutes(
     return entry.count <= limit.max;
   }
 
-  function resetRateLimit(ip: string, action: "login" | "register"): void {
+  function resetRateLimit(ip: string, action: "login" | "register" | "account"): void {
     authRateLimits.delete(`${action}:${ip}`);
   }
 
   // Cleanup stale entries every 30 min
-  setInterval(() => {
+  const rateLimitSweeper = setInterval(() => {
     const now = Date.now();
     for (const [key, entry] of authRateLimits) {
-      const action = key.startsWith("login:") ? "login" : "register";
+      const action = key.startsWith("login:") ? "login" : key.startsWith("account:") ? "account" : "register";
       if (now - entry.windowStart > RATE_LIMITS[action].windowMs) authRateLimits.delete(key);
     }
   }, 30 * 60 * 1000);
+  rateLimitSweeper.unref();
 
   // ── AUTH ROUTES (public) ──────────────────────────────────────────────────
   app.post("/api/auth/register", async (req, res) => {
@@ -147,7 +162,8 @@ export async function registerRoutes(
 
   app.post("/api/auth/login", (req, res, next) => {
     const ip = req.ip || req.socket.remoteAddress || "unknown";
-    if (!checkRateLimit(ip, "login")) {
+    const accountKey = String(req.body?.email || "").toLowerCase().trim().slice(0, 200);
+    if (!checkRateLimit(ip, "login") || (accountKey && !checkRateLimit(accountKey, "account"))) {
       return res.status(429).json({ error: "Trop de tentatives de connexion. Reessaie dans 15 minutes." });
     }
 
@@ -161,6 +177,7 @@ export async function registerRoutes(
         req.login(user, (loginErr) => {
           if (loginErr) return next(loginErr);
           resetRateLimit(ip, "login");
+          if (accountKey) resetRateLimit(accountKey, "account");
           const u = user as { id: number; email: string };
           res.json({ id: u.id, email: u.email });
         });
@@ -198,6 +215,9 @@ export async function registerRoutes(
     try {
       let rawText = "";
 
+      if (typeof req.body?.fileBase64 === "string" && req.body.fileBase64.length > 8_000_000) {
+        return res.status(413).json({ message: "PDF trop volumineux (6 Mo maximum)." });
+      }
       if (req.body?.fileBase64) {
         // PDF sent as base64
         try {
@@ -231,6 +251,7 @@ export async function registerRoutes(
       if (!openai) {
         return res.status(500).json({ message: "Service IA non configuré (OPENAI_API_KEY manquant)." });
       }
+      if (!(await llmQuota(req, res, 1))) return;
 
       const prompt = `Analyse ce CV et extrais TOUTES les expériences professionnelles.
 
@@ -272,17 +293,23 @@ ${truncated}`;
       res.json({ experiences, rawTextLength: rawText.length });
     } catch (err: any) {
       console.error("[IMPORT] Error:", err.message);
-      res.status(500).json({ message: "Erreur lors de l'import: " + err.message });
+      res.status(500).json({ message: "L'import a échoué. Réessaie ou colle le texte du CV." });
     }
   });
 
   // Bulk create experiences from import
   app.post("/api/import/save", async (req, res) => {
     try {
-      const { experiences: exps } = req.body;
-      if (!exps || !Array.isArray(exps)) {
-        return res.status(400).json({ message: "experiences array required" });
-      }
+      const parsedImport = z.object({
+        experiences: z.array(z.object({
+          title: z.string().max(200).optional(), company: z.string().max(200).optional(),
+          startDate: z.string().max(20).nullable().optional(), endDate: z.string().max(20).nullable().optional(),
+          description: z.string().max(2000).nullable().optional(),
+          bullets: z.array(z.string().max(400)).max(30).optional(),
+        })).max(40),
+      }).safeParse(req.body);
+      if (!parsedImport.success) return res.status(400).json({ message: "Import invalide." });
+      const exps = parsedImport.data.experiences;
       const userId = uid(req);
       const created = [];
       for (const exp of exps) {
@@ -437,6 +464,7 @@ ${truncated}`;
     }).safeParse(req.body);
     if (!wanted.success) return res.status(400).json({ message: "Cibles invalides." });
     if (!openai) return res.status(503).json({ message: "Service IA non configuré." });
+    if (!(await llmQuota(req, res, 1))) return;
     const all = await storage.getAllBullets(userId);
     const base = all.find(b => b.id === req.params.id);
     if (!base) return res.status(404).json({ message: "Bullet introuvable." });
@@ -543,6 +571,7 @@ Réponds en JSON : {"variants": [{"angle": "...", "language": "FR|EN", "text": "
       if (!openai) {
         return res.json({ skills: [] });
       }
+      if (!(await llmQuota(req, res, 1))) return;
 
       const prompt = `Analyse ces experiences professionnelles et extrais TOUTES les competences (skills).
 
@@ -599,11 +628,18 @@ Reponds UNIQUEMENT en JSON valide :
     res.json(p || { name: "", title: "", summary: null, targetRole: null });
   });
   app.put("/api/profile", async (req, res) => {
+    const parsed = z.object({
+      name: z.string().max(120).optional(),
+      title: z.string().max(160).optional(),
+      summary: z.string().max(1200).nullable().optional(),
+      targetRole: z.string().max(160).nullable().optional(),
+    }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Profil invalide." });
     try {
-      const p = await storage.upsertProfile(uid(req), req.body);
+      const p = await storage.upsertProfile(uid(req), parsed.data);
       res.json(p);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      res.status(500).json({ message: "Erreur serveur." });
     }
   });
 
@@ -614,12 +650,13 @@ Reponds UNIQUEMENT en JSON valide :
   });
   app.post("/api/formations", async (req, res) => {
     try {
-      const { school, degree, year } = req.body;
-      if (!school || !degree) return res.status(400).json({ message: "school and degree required" });
+      const parsedF = z.object({ school: z.string().trim().min(1).max(200), degree: z.string().trim().min(1).max(200), year: z.string().max(20).optional() }).safeParse(req.body);
+      if (!parsedF.success) return res.status(400).json({ message: "École et diplôme requis." });
+      const { school, degree, year } = parsedF.data;
       const f = await storage.createFormation(uid(req), { school, degree, year });
       res.status(201).json(f);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      res.status(500).json({ message: "Erreur serveur." });
     }
   });
   app.delete("/api/formations/:id", async (req, res) => {
@@ -634,12 +671,13 @@ Reponds UNIQUEMENT en JSON valide :
   });
   app.post("/api/languages", async (req, res) => {
     try {
-      const { name, level } = req.body;
-      if (!name) return res.status(400).json({ message: "name required" });
+      const parsedL = z.object({ name: z.string().trim().min(1).max(80), level: z.string().max(80).optional() }).safeParse(req.body);
+      if (!parsedL.success) return res.status(400).json({ message: "Langue requise." });
+      const { name, level } = parsedL.data;
       const l = await storage.createLanguage(uid(req), { name, level });
       res.status(201).json(l);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      res.status(500).json({ message: "Erreur serveur." });
     }
   });
   app.delete("/api/languages/:id", async (req, res) => {
@@ -684,8 +722,34 @@ Reponds UNIQUEMENT en JSON valide :
       res.json(exportData);
     } catch (err: any) {
       console.error("[SETTINGS] Export failed:", err.message);
-      res.status(500).json({ message: err.message });
+      res.status(500).json({ message: "Erreur serveur." });
     }
+  });
+
+  // Configuration visible par l'utilisateur (sans appel au modèle).
+  app.get("/api/settings/info", async (req, res) => {
+    res.json({
+      aiEnabled: !!openai,
+      provider: process.env.LLM_BASE_URL ? new URL(process.env.LLM_BASE_URL).hostname : "api.openai.com",
+      models: LLM_MODELS,
+      dailyQuota: LLM_DAILY_QUOTA,
+      usedToday: await storage.getLlmUsageToday(uid(req)),
+    });
+  });
+
+  // Suppression définitive du compte et de toutes ses données (RGPD, art. 17).
+  app.delete("/api/account", async (req, res) => {
+    const parsed = z.object({ password: z.string().min(1) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Mot de passe requis." });
+    const user = req.user as User;
+    const fresh = await getUserByEmail(user.email);
+    if (!fresh || !(await verifyPassword(parsed.data.password, fresh.passwordHash))) {
+      return res.status(403).json({ message: "Mot de passe incorrect." });
+    }
+    await storage.deleteUser(user.id);
+    req.logout(() => {
+      req.session.destroy(() => res.clearCookie("connect.sid").status(204).end());
+    });
   });
 
   app.post("/api/settings/reset", async (req, res) => {
@@ -713,7 +777,7 @@ Reponds UNIQUEMENT en JSON valide :
       }
     } catch (err: any) {
       console.error("[SETTINGS] Reset failed:", err.message);
-      res.status(500).json({ message: err.message });
+      res.status(500).json({ message: "Erreur serveur." });
     }
   });
 
@@ -727,10 +791,17 @@ Reponds UNIQUEMENT en JSON valide :
   app.patch("/api/runs/:id/tracking", async (req, res) => {
     try {
       const userId = uid(req);
-      const { tracking } = req.body;
-      if (!tracking || typeof tracking !== "object") {
-        return res.status(400).json({ error: "tracking object required" });
-      }
+      const parsedTracking = z.object({
+        tracking: z.object({
+          applied: z.boolean().optional(),
+          status: z.enum(["waiting", "interview", "rejected", "offer"]).optional(),
+          responseAt: z.string().max(40).nullable().optional(),
+          appliedAt: z.string().max(40).nullable().optional(),
+          notes: z.string().max(2000).optional(),
+        }).passthrough().refine(t => JSON.stringify(t).length <= 4000, "trop volumineux"),
+      }).safeParse(req.body);
+      if (!parsedTracking.success) return res.status(400).json({ error: "Suivi invalide." });
+      const { tracking } = parsedTracking.data;
       await db.update(runs).set({ tracking }).where(and(eq(runs.id, req.params.id), eq(runs.userId, userId)));
       res.json({ ok: true });
     } catch (err: any) {
@@ -752,6 +823,7 @@ Reponds UNIQUEMENT en JSON valide :
       if (!openai || (!exp.description && existingBullets.length === 0)) {
         return res.json({ axes: [] });
       }
+      if (!(await llmQuota(req, res, 1))) return;
 
       const prompt = `Analyse cette experience et identifie les grands AXES de mission / perimetres de travail distincts.
 
@@ -801,6 +873,7 @@ Reponds en JSON : {"axes": [{"text": "description courte de l'axe", "source": "d
         ]});
       }
 
+      if (!(await llmQuota(req, res, 1))) return;
       const prompt = `Tu analyses un CV pour trouver ce qui MANQUE. Tu dois identifier les lacunes et poser UNE question par lacune.
 
 ETAPE 1 — IDENTIFIER LES MISSIONS/PERIMETRES DISTINCTS
@@ -868,6 +941,7 @@ Reponds UNIQUEMENT en JSON valide :
       if (!openai) {
         return res.json({ tags: ["general"], evaluation: null, suggestion: null });
       }
+      if (!(await llmQuota(req, res, 1))) return;
 
       const prompt = `Tu recois un bullet CV. Tu fais 4 choses SIMPLES :
 
@@ -943,7 +1017,8 @@ JSON uniquement :
       });
       let result = fastResult;
 
-      if (openai && (fastResult.viability === "weak" || fastResult.viability === "uncertain")) {
+      if (openai && (fastResult.viability === "weak" || fastResult.viability === "uncertain")
+        && (await storage.consumeLlmQuota(userId, 2, LLM_DAILY_QUOTA)).allowed) {
         result = await runDryRunCheck({
           jobText: resolvedInput.effectiveJobText,
           mode: "original",
@@ -995,6 +1070,8 @@ JSON uniquement :
 
       // Mode assemblage : déterministe, fonctionne aussi sans clé IA.
       if (mode === "assembly") {
+        // Quota épuisé : l'assemblage continue, avec une lecture d'offre sans IA.
+        const useLlm = !!openai && (await storage.consumeLlmQuota(userId, 1, LLM_DAILY_QUOTA)).allowed;
         const [allExps, allBullets, allSkills, profileData, formationRows, langRows, variants] = await Promise.all([
           storage.getExperiences(userId), storage.getAllBullets(userId), storage.getSkills(userId),
           storage.getProfile(userId), storage.getFormations(userId), storage.getLanguages(userId),
@@ -1009,7 +1086,7 @@ JSON uniquement :
           formations: formationRows, languages: langRows,
           bodyMaxChars: bodyMaxChars || customMaxChars, angle, language,
           embeddingStore: embeddingStoreFor(userId),
-        }, openai);
+        }, useLlm ? openai : null);
         const jobPost = await storage.createJobPost(userId, {
           url: resolvedInput.metadata.normalizedUrl,
           rawText: resolvedInput.effectiveJobText,
@@ -1029,6 +1106,7 @@ JSON uniquement :
       if (!openai) {
         return res.status(503).json({ message: "Service IA non configuré : utilise le mode Assemblage ou ajoute une clé." });
       }
+      if (!(await llmQuota(req, res, 6))) return;
       // Load all data
       const allExps = await storage.getExperiences(userId);
       const allBullets = await storage.getAllBullets(userId);
@@ -1099,6 +1177,7 @@ JSON uniquement :
     const parsed = z.object({ experienceIndex: z.number().int().min(0), bulletIndex: z.number().int().min(0) }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Bullet invalide." });
     if (!openai) return res.status(503).json({ message: "Service IA non configuré." });
+    if (!(await llmQuota(req, res, 2))) return;
     const run = await storage.getRun(userId, req.params.id);
     if (!run) return res.status(404).json({ message: "Not found" });
     const report = run.outputReportJson as OptimizationReport | null;

@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, date, uuid, jsonb, unique, index, varchar, json, real } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, date, uuid, jsonb, unique, index, varchar, json, real, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { sql } from "drizzle-orm";
@@ -151,6 +151,13 @@ export const runs = pgTable("runs", {
   tracking: jsonb("tracking"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => [index("IDX_runs_user_id_created").on(t.userId, t.createdAt.desc())]);
+
+// Consommation d'appels LLM par utilisateur et par jour (quota LLM_DAILY_QUOTA).
+export const llmUsage = pgTable("llm_usage", {
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  day: date("day").notNull(),
+  calls: integer("calls").notNull().default(0),
+}, (t) => [primaryKey({ columns: [t.userId, t.day] })]);
 
 export const insertProfileSchema = createInsertSchema(profile).omit({ id: true, updatedAt: true, userId: true });
 export const insertExperienceSchema = createInsertSchema(experiences).omit({ id: true, createdAt: true, userId: true });

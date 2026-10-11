@@ -101,7 +101,7 @@ export function Layout({ children, pageLabel }: { children: React.ReactNode; pag
   const { data: user } = useCurrentUser();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const avatarSeed = useMemo(() => user?.email?.trim() || "Profil", [user?.email]);
+  const avatarSeed = useMemo(() => user?.email?.split("@")[0] || "", [user?.email]);
 
   return (
     <div className="flex min-h-screen bg-white">
@@ -137,15 +137,9 @@ export function Layout({ children, pageLabel }: { children: React.ReactNode; pag
 
           <div className="ml-auto flex items-center">
             <div className="flex items-center gap-3 rounded-[30px] bg-[#f7f7f7] px-4 py-2">
-              <div className="h-[44px] w-[44px] flex-shrink-0 overflow-hidden rounded-full">
-                <img
-                  src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(avatarSeed)}`}
-                  alt="avatar"
-                  className="h-full w-full object-cover"
-                  onError={(event) => {
-                    (event.target as HTMLImageElement).style.display = "none";
-                  }}
-                />
+              {/* Initiales locales : l'email n'est plus envoyé à un service d'avatars tiers. */}
+              <div className="flex h-[44px] w-[44px] flex-shrink-0 items-center justify-center rounded-full bg-[#4e5bf2] text-[15px] font-semibold uppercase text-white" aria-hidden="true">
+                {avatarSeed.replace(/[^a-zA-Z]/g, "").slice(0, 2) || "?"}
               </div>
               <div>
                 <p className="text-[14px] font-semibold leading-tight tracking-[-0.35px] text-[#0f1729]">

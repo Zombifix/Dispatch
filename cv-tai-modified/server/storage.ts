@@ -1,8 +1,8 @@
-import { db } from "./db";
+import { db, pool } from "./db";
 import { eq, desc, and, isNotNull } from "drizzle-orm";
 import {
   profile, experiences, bullets, skills, formations, languages, jobPosts, runs,
-  bulletVariants, profileVariants,
+  bulletVariants, profileVariants, users,
   type BulletVariant, type ProfileVariant,
   type Profile, type InsertProfile,
   type Experience, type InsertExperience,
@@ -58,6 +58,11 @@ export interface IStorage {
   getProfileVariants(userId: number): Promise<ProfileVariant[]>;
   upsertProfileVariant(userId: number, v: { kind: string; angle: string; language: string; text: string }): Promise<ProfileVariant>;
   deleteProfileVariant(userId: number, id: string): Promise<void>;
+
+  // Quota LLM
+  consumeLlmQuota(userId: number, units: number, dailyLimit: number): Promise<{ allowed: boolean; used: number }>;
+  getLlmUsageToday(userId: number): Promise<number>;
+  deleteUser(userId: number): Promise<void>;
 
   // Skills
   getSkills(userId: number): Promise<Skill[]>;
@@ -229,6 +234,33 @@ export class DatabaseStorage implements IStorage {
   }
   async deleteProfileVariant(userId: number, id: string) {
     await db.delete(profileVariants).where(and(eq(profileVariants.id, id), eq(profileVariants.userId, userId)));
+  }
+
+  // Quota LLM : incrément atomique, refusé si la limite du jour serait dépassée.
+  async consumeLlmQuota(userId: number, units: number, dailyLimit: number) {
+    if (dailyLimit <= 0) return { allowed: true, used: 0 };
+    const { rows } = await pool.query(
+      `INSERT INTO llm_usage (user_id, day, calls) VALUES ($1, current_date, $2)
+       ON CONFLICT (user_id, day) DO UPDATE SET calls = llm_usage.calls + EXCLUDED.calls
+       WHERE llm_usage.calls + EXCLUDED.calls <= $3
+       RETURNING calls`,
+      [userId, units, dailyLimit],
+    );
+    if (rows.length === 0 || rows[0].calls > dailyLimit) {
+      const cur = await pool.query("SELECT calls FROM llm_usage WHERE user_id = $1 AND day = current_date", [userId]);
+      return { allowed: false, used: cur.rows[0]?.calls ?? dailyLimit };
+    }
+    return { allowed: true, used: rows[0].calls };
+  }
+
+  async getLlmUsageToday(userId: number) {
+    const { rows } = await pool.query("SELECT calls FROM llm_usage WHERE user_id = $1 AND day = current_date", [userId]);
+    return rows[0]?.calls ?? 0;
+  }
+
+  // Suppression de compte : toutes les tables suivent par cascade.
+  async deleteUser(userId: number) {
+    await db.delete(users).where(eq(users.id, userId));
   }
 
   // Skills
