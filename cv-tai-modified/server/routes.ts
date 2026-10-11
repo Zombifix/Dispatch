@@ -25,6 +25,7 @@ import { createLlmClient, completeJson, LLM_MODELS } from "./llm";
 import { ANGLES, CV_LANGUAGES, variantInputSchema, type User } from "@shared/schema";
 import { validateVariant } from "./engine/variants";
 import { assembleCv, buildAssemblyReport } from "./assembler";
+import { safeFileName, toDocx, toFigmaPayload, toJsonResume } from "./exports";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (req.isAuthenticated()) return next();
@@ -1142,6 +1143,36 @@ JSON uniquement :
     const text = renderCV(cv, report.cvLanguage || "FR");
     const updated = await storage.updateRunOutput(userId, run.id, text, { ...report, structuredCV: cv, rewrites: cv.rewrites });
     res.json(updated);
+  });
+
+  // ── Exports d'un CV généré ──
+  async function loadCvForExport(req: Request, res: Response) {
+    const run = await storage.getRun(uid(req), String(req.params.id));
+    if (!run) { res.status(404).json({ message: "Not found" }); return null; }
+    const report = run.outputReportJson as OptimizationReport | null;
+    if (!report?.structuredCV) {
+      res.status(409).json({ message: "Ce CV date d'avant les exports structurés : régénère-le pour l'exporter." });
+      return null;
+    }
+    const language = report.cvLanguage || "FR";
+    const name = safeFileName(report.structuredCV.name, report.jobCompany || report.jobTitle);
+    return { cv: report.structuredCV, language, name };
+  }
+
+  app.get("/api/runs/:id/export.json", async (req, res) => {
+    const data = await loadCvForExport(req, res);
+    if (!data) return;
+    const format = req.query.format === "jsonresume" ? "jsonresume" : "figma";
+    res.json(format === "jsonresume" ? toJsonResume(data.cv, data.language) : toFigmaPayload(data.cv, data.language));
+  });
+
+  app.get("/api/runs/:id/export.docx", async (req, res) => {
+    const data = await loadCvForExport(req, res);
+    if (!data) return;
+    const buffer = await toDocx(data.cv, data.language);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.setHeader("Content-Disposition", `attachment; filename="${data.name}.docx"`);
+    res.send(buffer);
   });
 
   app.get(api.tailor.getRun.path, async (req, res) => {

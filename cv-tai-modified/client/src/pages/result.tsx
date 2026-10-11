@@ -2224,6 +2224,18 @@ export default function Result() {
 
   const displayText = repairMojibake(editedText ?? run?.outputCvText ?? "");
 
+  const [figmaCopied, setFigmaCopied] = useState(false);
+  const handleCopyFigma = async () => {
+    try {
+      const res = await apiRequest("GET", `/api/runs/${id}/export.json?format=figma`);
+      await navigator.clipboard.writeText(JSON.stringify(await res.json(), null, 2));
+      setFigmaCopied(true);
+      setTimeout(() => setFigmaCopied(false), 2000);
+    } catch (e) {
+      toast({ title: "Export impossible", description: (e as Error).message, variant: "destructive" });
+    }
+  };
+
   const handleCopy = () => {
     navigator.clipboard.writeText(displayText);
     setCopied(true);
@@ -2619,6 +2631,29 @@ export default function Result() {
                 {exported ? <Check className="w-3.5 h-3.5" /> : <FileDown className="w-3.5 h-3.5" />}
                 {exported ? "Pret" : "Export IA"}
               </Button>
+              {(report as any)?.structuredCV && (
+                <>
+                  <Button
+                    variant="outline"
+                    asChild
+                    className="rounded-[12px] gap-[8px] text-[13px] font-medium h-9 min-h-[36px]"
+                  >
+                    <a href={`/api/runs/${run.id}/export.docx`} data-testid="button-export-docx" title="Une colonne, texte réel : la version à déposer dans les formulaires ATS">
+                      <FileDown className="w-3.5 h-3.5" /> Word (ATS)
+                    </a>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleCopyFigma}
+                    className="rounded-[12px] gap-[8px] text-[13px] font-medium h-9 min-h-[36px]"
+                    data-testid="button-copy-figma"
+                    title="À coller dans le plugin Figma Dispatch pour remplir ton template"
+                  >
+                    {figmaCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    {figmaCopied ? "Copié" : "Pour Figma"}
+                  </Button>
+                </>
+              )}
             </div>
 
             {assembly && (
