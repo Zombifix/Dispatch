@@ -103,13 +103,6 @@ export const api = {
         404: errorSchemas.notFound,
       },
     },
-    reEmbedAll: {
-      method: "POST" as const,
-      path: "/api/bullets/re-embed" as const,
-      responses: {
-        200: z.object({ success: z.boolean(), count: z.number() }),
-      },
-    },
   },
   skills: {
     list: {
@@ -182,33 +175,6 @@ export const api = {
       responses: {
         200: z.custom<RunResponse>(),
         404: errorSchemas.notFound,
-      },
-    },
-  },
-  parseExperience: {
-    parse: {
-      method: "POST" as const,
-      path: "/api/experiences/parse" as const,
-      input: z.object({
-        text: z.string(),
-      }),
-      responses: {
-        200: z.object({
-          title: z.string(),
-          company: z.string(),
-          employmentType: z.string().optional(),
-          startDate: z.string().optional(),
-          endDate: z.string().optional(),
-          location: z.string().optional(),
-          summary: z.string().optional(),
-          responsibilities: z.array(z.string()).optional(),
-          achievements: z.array(z.string()).optional(),
-          skills: z.array(z.string()).optional(),
-          tools: z.array(z.string()).optional(),
-          industry: z.array(z.string()).optional(),
-        }),
-        400: errorSchemas.validation,
-        500: errorSchemas.internal,
       },
     },
   },

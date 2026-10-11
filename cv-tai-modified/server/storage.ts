@@ -30,7 +30,6 @@ export interface IStorage {
   createBullet(userId: number, bullet: InsertBullet): Promise<Bullet>;
   updateBullet(userId: number, id: string, updates: Partial<InsertBullet>): Promise<Bullet>;
   deleteBullet(userId: number, id: string): Promise<void>;
-  updateBulletEmbedding(id: string, embedding: number[]): Promise<void>;
   getAllBullets(userId: number): Promise<Bullet[]>;
 
   // Skills
@@ -141,10 +140,6 @@ export class DatabaseStorage implements IStorage {
     const exp = await this.getExperience(userId, bullet.experienceId);
     if (!exp) return;
     await db.delete(bullets).where(eq(bullets.id, id));
-  }
-  async updateBulletEmbedding(id: string, embedding: number[]) {
-    // pgvector not available — embedding disabled
-    return;
   }
   async getAllBullets(userId: number) {
     // Get all bullets for this user's experiences via join

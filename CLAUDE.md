@@ -1,111 +1,61 @@
-# CV Tailor — Vision & Objectifs
+# Dispatch — CV modulable
 
-## Projet 
-Outil de tailoring de CV : l'IA sélectionne et adapte intelligemment
-les expériences et bullets d'une librairie personnelle pour les aligner
-sur une offre d'emploi donnée.
+Mémoire canonique du projet pour les humains et les agents. C'est le seul fichier d'instructions : `AGENTS.md` renvoie ici.
+
+## Le produit en une phrase
+L'utilisateur écrit une bibliothèque d'arguments (faits + formulations). Pour chaque offre, Dispatch **assemble** le meilleur CV à partir de ces arguments, explique chaque choix, et ne fait intervenir l'IA que là où elle apporte quelque chose, toujours de façon visible et réversible.
 
 ## Objectif nord
-Produire un CV en lequel l'utilisateur a confiance sans avoir à relire —
-qui passe l'ATS ET accroche un recruteur humain.
+Un CV que l'utilisateur peut envoyer sans relecture lourde, qui passe le parsing ATS et qui sonne comme lui, pas comme un modèle.
 
-## Vision produit — Enrichissement
-### Principes
-- L'utilisateur écrit ses bullets lui-même — le LLM ne reformule jamais
-  dans la librairie. L'utilisateur écrit mieux que le LLM pour son propre
-  contexte.
-- Le LLM a un rôle limité et fiable : tagger (mots-clés ATS) + évaluer
-  (5 critères : clarté, contexte, scope, impact, complétude) + suggérer.
-- Contraintes : 60-200 caractères par bullet, max 5 bullets par expérience.
-- Quick check déterministe en liste (pas de chiffre, trop court, pas de tags)
-  — feedback instantané sans appel LLM.
-- Les axes de mission sont pré-extraits de la description pour guider
-  l'utilisateur.
+## Doctrine (ne pas dévier)
+1. **Le produit, c'est le CV généré.** Les scores sont des repères de triage, jamais l'objectif d'optimisation.
+2. **L'utilisateur écrit, le moteur choisit.** Le LLM ne réécrit jamais la bibliothèque. Il tague, évalue, propose ; l'utilisateur accepte ou non.
+3. **Assemblage d'abord, IA ensuite.** Sélection, ordre, budget, titre, compétences : déterministe. L'IA sert à comprendre l'offre et à proposer des retouches ponctuelles avec diff.
+4. **Rien qui ne vienne pas de l'utilisateur.** Jamais de compétence ajoutée parce que l'offre la cite, jamais le titre de l'offre comme titre du CV, jamais de métrique, produit ou scope inventés.
+5. **Une langue par CV.** Jamais de mélange.
+6. **Chaque ligne a une raison lisible** (must-have couvert, angle, preuve chiffrée).
+7. **Le style IA est un défaut** : verbes en tête identiques, longueurs uniformes, formules creuses. Le linter les signale.
 
-## Vision du moteur de tailoring
-### Principes
-- **Positioning adaptatif** : le moteur détecte si l'offre est consultant /
-  lead / IC / manager et adapte le scoring, le résumé, et la reformulation.
-  Un profil consultant met en avant structuration et accompagnement,
-  pas delivery.
-- **Intentions** : au-delà des mots-clés ATS, le moteur extrait les
-  intentions profondes de l'offre ("structurer les pratiques design",
-  "influencer les stakeholders", "mesurer l'impact business").
-  Le scoring matche les bullets contre ces intentions.
-- **Scoring hybride** : déterministe (tags + text + description context +
-  intentions) + LLM (pertinence sémantique). Si le LLM fail, le CV
-  tient quand même.
-- **Budget-aware** : allocation proportionnelle à la pertinence (strong
-  bullets count × recency), pas juste à la récence. À 2000 chars →
-  bullets impact uniquement. À 3000+ chars → storytelling et contexte.
-- **Description context** : la description de l'expérience est utilisée
-  comme signal de scoring même si les bullets ne mentionnent pas
-  directement les mots-clés.
-- Sélection dynamique des bullets selon la pertinence réelle.
-- Reformulation adaptative (légère à forte) selon le delta entre le
-  bullet et l'offre — jamais d'invention, toujours ancré dans le réel.
-- Cohérence au profil : le CV raconte une trajectoire, pas une liste
-  de mots-clés.
-- Résumé pro adaptatif : le résumé s'adapte au positioning de l'offre,
-  pas un texte générique.
+## Ce qu'il ne faut plus faire
+- Retoucher des seuils de score à la main sur quelques offres (overfit constaté en 2026).
+- Déployer une modification du moteur sans rejouer le corpus (`npm run eval`) et **lire** les CV produits.
+- Laisser un modèle réécrire tout le document en un passage.
+- Utiliser `drizzle-kit push` sur une base réelle : toujours `npm run db:generate` puis migration versionnée.
+- Committer un secret, un fichier `.env`, un dump, un fichier de session d'agent ou une sauvegarde de page.
 
-### Ce que le moteur ne doit jamais faire
-- Inventer des métriques, des noms de produits ou des achievements absents
-- Injecter des phrases descriptives dans les compétences
-- Mixer les langues dans un même CV
-- Sélectionner des bullets qui se répètent entre expériences
-- Ignorer le positioning (traiter une offre conseil comme une offre IC)
-
-## Stack technique
-- Backend : Node.js / Express / TypeScript
-- LLM : OpenAI gpt-4o-mini (via OPENAI_API_KEY)
-- BDD : PostgreSQL via Drizzle ORM
-- Frontend : React / Vite / TailwindCSS
-- Déploiement : Railway (branch main → auto-deploy)
-
-## Architecture tailoring (pipeline 8 étapes)
-1. parseJobDescription → titre, skills, keywords, intentions[], positioning
-2. hybridScoreAllBullets → score déterministe + LLM pour chaque bullet
-3. allocateCharBudget → budget chars par expérience (pertinence × récence)
-4. selectBullets → sélection + déduplications par dimension
-5. buildStructuredCV → résumé adaptatif + skills dédupliquées
-6. reformulateBullets → reformulation orientée positioning (mode optimisé)
-7. applyPostRules → injection keywords manquants, troncature
-8. renderCVText → rendu texte final
+## Architecture
+- `cv-tai-modified/` : l'application (nom historique du dossier).
+- Serveur : Express 5 + TypeScript (`server/`). Client : React 18 + Vite + Tailwind (`client/src/`). Base : PostgreSQL via Drizzle (`shared/schema.ts`, migrations dans `migrations/`).
+- LLM : interface unique `server/llm.ts` (fournisseur compatible OpenAI configurable, sorties structurées validées par Zod, quota par utilisateur).
+- Déploiement : Docker sur VPS via Coolify (`docs/DEPLOY_VPS.md`).
 
 ## Fichiers clés
-- server/tailoring-engine.ts — pipeline complet
-- server/routes.ts — API endpoints
-- client/src/pages/library.tsx — page bibliothèque (accordéon + panneau)
-- client/src/pages/tailor.tsx — page tailoring
-- shared/schema.ts — schéma DB (Drizzle)
-- shared/routes.ts — contrats API (Zod)
-- server/storage.ts — couche DB
+| Fichier | Rôle |
+| --- | --- |
+| `shared/schema.ts` | schéma de base, source unique |
+| `server/tailoring-engine.ts` | pipeline historique (mode fidèle / optimisé) |
+| `server/assembler.ts` | assemblage déterministe (mode recommandé) |
+| `server/cv-lint.ts` | linter anti-CV générique |
+| `server/job-input.ts` | récupération et nettoyage des annonces |
+| `server/llm.ts` | accès LLM, cache, quotas |
+| `server/routes.ts` | API |
+| `client/src/pages/library.tsx` | bibliothèque (faits, variantes) |
+| `client/src/pages/tailor.tsx`, `result.tsx` | génération et résultat |
+| `figma-plugin/` | plugin Figma privé de remplissage du template |
 
-## Roadmap (priorités)
-### Done
-1. [done] Swap Groq → OpenAI gpt-4o-mini
-2. [done] Fix skills injection (filtrer non-skills)
-3. [done] Fix skills dedup (quasi-doublons)
-4. [done] Enrichissement bullets via experience.description
-5. [done] Guardrails summary anti-hallucination
-6. [done] Champ extraContext dans le formulaire tailor
-7. [done] Flow enrichissement simplifié (user writes, LLM tags + evals)
-8. [done] Panneau latéral 3 modes (axes / liste / édition)
-9. [done] Positioning adaptatif (consultant / lead / IC / manager)
-10. [done] Intentions dans le scoring
-11. [done] Budget allocator par pertinence (strong bullets)
-12. [done] Quick check déterministe (sans LLM)
-13. [done] Limites 60-200 chars, max 5 bullets
-14. [done] Auto-tag on save
-15. [done] UI polish (tags agrandis, chevron, tri stable, espacement)
+## Commandes
+```
+npm run dev          # serveur + client en développement (DATABASE_URL requis)
+npm run check        # typecheck
+npm test             # tests (TEST_DATABASE_URL pour les tests de migration)
+npm run build        # build production
+npm run db:generate  # nouvelle migration après modification du schéma
+npm run db:migrate   # appliquer les migrations
+npm run eval         # rejouer le corpus d'évaluation (voir analysis/corpus/README.md)
+```
 
-### À faire
-16. [done] Cohérence narrative entre expériences (Jaccard dedup cross-experiences)
-17. [done] Sélection budget-adaptive (compact ≤2000 = impact only, rich >3000 = storytelling)
-18. [done] Nettoyage code mort (ancien endpoint /enrich supprimé)
-19. [ ] Autocomplétion des tags (réutiliser existants)
-20. [ ] Scraping fallback propre
-21. [ ] Multi-user / auth — near-term : partage avec 2-3 personnes, base pour SaaS futur
-22. [ ] Accept/reject bullet par l'utilisateur
-23. [ ] Embeddings sémantiques (pgvector)
+## Reprise rapide pour un agent
+1. Lire ce fichier, puis `docs/AUDIT-2026-10-11.md` (§0 et §12) pour le contexte.
+2. `git log --oneline -20` et `git status`.
+3. Toute modification passe `npm run check` et `npm test` avant commit.

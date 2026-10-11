@@ -18,25 +18,6 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
   }
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error("[ErrorBoundary]", error, info.componentStack);
-    // #region agent log
-    fetch("http://127.0.0.1:7297/ingest/a5304bcd-7823-4ec6-ac0b-4a69ddc533f3", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "77058f" },
-      body: JSON.stringify({
-        sessionId: "77058f",
-        runId: "pre-fix",
-        hypothesisId: "H5_H6",
-        location: "client/src/App.tsx:componentDidCatch",
-        message: "ErrorBoundary captured runtime error",
-        data: {
-          errorName: error?.name,
-          errorMessage: error?.message,
-          componentStack: info?.componentStack?.slice(0, 400),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
   }
   render() {
     if (this.state.hasError) {

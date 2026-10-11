@@ -81,15 +81,3 @@ export function useDeleteBullet() {
   });
 }
 
-export function useReEmbedBullets() {
-  return useMutation({
-    mutationFn: async () => {
-      const res = await fetch(api.bullets.reEmbedAll.path, {
-        method: api.bullets.reEmbedAll.method,
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to trigger re-embed");
-      return api.bullets.reEmbedAll.responses[200].parse(await res.json());
-    },
-  });
-}

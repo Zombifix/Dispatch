@@ -53,7 +53,7 @@ export async function checkLLMHealth(openai: OpenAI | null): Promise<LLMHealthRe
   r.responseTimeMs = Date.now() - start; return r;
 }
 
-// â”€â”€â”€ Shared helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Shared helpers ──
 function normalizeSkillKey(s: string): string {
   return s.toLowerCase().replace(/[/\-]/g, " ").replace(/\s+/g, " ").replace(/s$/, "").trim();
 }
@@ -276,7 +276,7 @@ function maybeDecodeLatin1AsUtf8(value: string): string {
   }
 }
 
-function repairMojibake(value: string): string {
+export function repairMojibake(value: string): string {
   if (!value) return value;
   let best = applyCommonEncodingFixes(value);
   let bestScore = mojibakePenaltyScore(best);
@@ -559,7 +559,7 @@ export function assessFitMetier(
   };
 }
 
-// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Types ──
 export interface ParsedJob {
   title: string; company: string; seniority: string; domain: string;
   requiredSkills: string[]; preferredSkills: string[]; responsibilities: string[];
@@ -628,7 +628,7 @@ function sanitizeStructuredCV(cv: StructuredCV): StructuredCV {
   };
 }
 
-// â”€â”€â”€ Step 1: Parse Job (with intentions + positioning) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Step 1: Parse Job (with intentions + positioning) ──
 export async function parseJobDescription(jobText: string, openai: OpenAI): Promise<ParsedJob> {
   const sanitizedJobText = sanitizeTextValue(jobText);
   log("parseJobDescription", `${sanitizedJobText.length} chars`);
@@ -638,12 +638,12 @@ export async function parseJobDescription(jobText: string, openai: OpenAI): Prom
       { role: "system", content: `Extract structured info from a job posting. Return JSON:
 - title, company, seniority (junior/mid/senior/lead/director), domain
 - requiredSkills[], preferredSkills[], responsibilities[]
-- keywords[] (10-20 ATS terms: concrete tools, technologies, methodologies â€” max 3 words each, NO soft skills, NO descriptive phrases)
-- criticalKeywords[] (5-8 ROLE-DISCRIMINATING must-haves â€” CRITICAL RULE: choose terms that a professional from an ADJACENT but different field would NOT have. Examples:
-  * For Product Owner: "Backlog Management", "Sprint Planning", "User Stories", "Roadmap" â€” NOT "User Research" (designers have this too)
-  * For Product Designer: "Figma", "Prototyping", "Design System", "Usability Testing" â€” NOT "Stakeholder Management" (POs have this too)
-  * For Chef de Projet: "Gestion de projet", "Planning", "Budget", "Reporting" â€” NOT "Product Discovery"
-  * For Data Analyst: "SQL", "Python", "Data Viz", "Dashboard" â€” NOT "Analytics" (too generic)
+- keywords[] (10-20 ATS terms: concrete tools, technologies, methodologies — max 3 words each, NO soft skills, NO descriptive phrases)
+- criticalKeywords[] (5-8 ROLE-DISCRIMINATING must-haves — CRITICAL RULE: choose terms that a professional from an ADJACENT but different field would NOT have. Examples:
+  * For Product Owner: "Backlog Management", "Sprint Planning", "User Stories", "Roadmap" — NOT "User Research" (designers have this too)
+  * For Product Designer: "Figma", "Prototyping", "Design System", "Usability Testing" — NOT "Stakeholder Management" (POs have this too)
+  * For Chef de Projet: "Gestion de projet", "Planning", "Budget", "Reporting" — NOT "Product Discovery"
+  * For Data Analyst: "SQL", "Python", "Data Viz", "Dashboard" — NOT "Analytics" (too generic)
   The goal: if someone with the wrong background reads these 5-8 keywords, they should immediately know they don't qualify.)
 - language ("EN"/"FR")
 - intentions[] (5-10 phrases: what the role REALLY needs beyond keywords. Ex: "structurer les pratiques design", "influencer les stakeholders", "mesurer l'impact business du design". VERBS + OUTCOMES.)
@@ -694,7 +694,7 @@ Important: roleFrame must describe the REAL WORK in the body of the posting, not
   return sanitizeParsedJob(result);
 }
 
-// â”€â”€â”€ Step 2: Hybrid Score â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Step 2: Hybrid Score ──
 function inferDimension(tags: string[]): string {
   const t = tags.map(x => x.toLowerCase());
   if (t.some(x => ["impact","chiffres","resultats","metrics","kpi","conversion","revenue"].includes(x))) return "impact";
@@ -705,7 +705,7 @@ function inferDimension(tags: string[]): string {
   return "craft";
 }
 
-function deterministicScore(bullet: Bullet, experience: Experience, allKw: string[], critKw: string[], intentions: string[]): { score: number; matchedTags: string[]; matchedKeywords: string[] } {
+export function deterministicScore(bullet: Bullet, experience: Experience, allKw: string[], critKw: string[], intentions: string[]): { score: number; matchedTags: string[]; matchedKeywords: string[] } {
   const tags = (bullet.tags || []).filter(Boolean).map(t => t.toLowerCase());
   const text = bullet.text.toLowerCase();
   const desc = (experience.description || "").toLowerCase();
@@ -863,7 +863,7 @@ Score generously for bullets matching the SPIRIT of the role.` },
   return scored;
 }
 
-// â”€â”€â”€ Step 3: Budget Allocator (pertinence-weighted) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Step 3: Budget Allocator (pertinence-weighted) ──
 interface BudgetAlloc { experience: Experience; charBudget: number; maxBullets: number; importance: "critical" | "standard" | "minimal"; }
 type SelectionStrategy = "faithful" | "optimized";
 type ProofPriority =
@@ -924,10 +924,7 @@ export function allocateCharBudget(exps: Experience[], scored: ScoredBullet[], t
   });
 }
 
-// â”€â”€â”€ Narrative dedup helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function tokenize(text: string): Set<string> {
-  return new Set(text.toLowerCase().replace(/[^a-zÃ Ã¢Ã§Ã©Ã¨ÃªÃ«Ã®Ã¯Ã´Ã¹Ã»Ã¼Ã¿Ã±Ã¦Å“0-9]/g, " ").split(/\s+/).filter(w => w.length >= 4));
-}
+// ── Narrative dedup helpers ──
 function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
   const inter = [...a].filter(w => b.has(w)).length;
   const union = new Set([...a, ...b]).size;
@@ -1043,7 +1040,7 @@ function getBulletSelectionSignals(sb: ScoredBullet, job: ParsedJob): {
   };
 }
 
-// â”€â”€â”€ Step 4: Select & Deduplicate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Step 4: Select & Deduplicate ──
 export function selectBullets(scored: ScoredBullet[], allocs: BudgetAlloc[], job: ParsedJob, options?: SelectBulletsOptions): ScoredExperience[] {
   const strategy = options?.strategy || "faithful";
   // First pass: select per experience
@@ -1164,7 +1161,7 @@ export function selectBullets(scored: ScoredBullet[], allocs: BudgetAlloc[], job
   return result;
 }
 
-// â”€â”€â”€ Step 5: Build Structured CV (adaptive) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Step 5: Build Structured CV (adaptive) ──
 export async function buildStructuredCV(job: ParsedJob, selExps: ScoredExperience[], skills: Skill[], mode: string, openai: OpenAI, extras?: { profileName?: string; profileTitle?: string; profileSummary?: string; formations?: any[]; languages?: any[] }): Promise<StructuredCV> {
   const allKw = [...job.requiredSkills, ...job.preferredSkills, ...job.keywords].map(k => k.toLowerCase());
   const allTags = selExps.flatMap(se => se.selectedBullets.flatMap(sb => (sb.bullet.tags || []).filter(Boolean).map(t => t.toLowerCase())));
@@ -1429,7 +1426,7 @@ Return JSON: {"summary": "...", "bullets": [{"index": 0, "text": "..."}]}` },
   return sanitizeStructuredCV(cv);
 }
 
-// â”€â”€â”€ Step 7: Post Rules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Step 7: Post Rules ──
 export interface PostRuleResult {
   keywordsCovered: string[];
   keywordsMissing: string[];
@@ -1479,7 +1476,7 @@ export function applyPostRules(cv: StructuredCV, job: ParsedJob): PostRuleResult
   };
 }
 
-// â”€â”€â”€ Step 8: Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Step 8: Render ──
 export function renderCVText(cv: StructuredCV, job: ParsedJob): string {
   const safeCv = sanitizeStructuredCV(cv);
   const safeJob = sanitizeParsedJob(job);
@@ -1495,7 +1492,7 @@ export function renderCVText(cv: StructuredCV, job: ParsedJob): string {
   return l.join("\n").trim();
 }
 
-// â”€â”€â”€ Report â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Report ──
 export type PrimaryDiagnosis =
   | "Bon alignement global"
   | "Mismatch de metier"
@@ -2999,7 +2996,7 @@ export function generateOptimizationReport(job: ParsedJob, selExps: ScoredExperi
   return { jobTitle: job.title, jobCompany: job.company, jobSeniority: job.seniority, jobDomain: job.domain, detectedKeywords: { requiredSkills: job.requiredSkills, preferredSkills: job.preferredSkills, responsibilities: job.responsibilities, keywords: job.keywords, criticalKeywords: job.criticalKeywords }, matchedSkills: matched.map(s => s.name), missingSkills: missingSkills.slice(0, 10), selectedExperiences: selExps.map(se => ({ title: se.experience.title, company: se.experience.company, score: Math.round(se.score), reason: se.reason, matchedAspects: se.matchedAspects, bulletCount: se.selectedBullets.length, charBudget: se.charBudget })), rejectedExperiences: [], selectedBullets: allBullets.map(sb => ({ text: sb.bullet.text, experienceTitle: sb.experience.title, score: sb.totalScore, deterministicScore: sb.deterministicScore, llmScore: sb.llmScore, matchedKeywords: sb.matchedKeywords, dimension: sb.dimension })), postRules, confidence, confidenceReasoning: verdict, fallbackUsed: total === 0, detectedLanguage: job.language, positioning: job.positioning, intentions: job.intentions, productMaturity: job.productMaturity, complexityLevel: job.complexityLevel, ownershipLevel: job.ownershipLevel, tips, diagnosis: { primaryDiagnosis, verdict, whatMatches: whatMatches.slice(0, 3), whatMissing: whatMissing.slice(0, 3), nextActions: nextActions.slice(0, 3), primaryCause, secondaryCauses, recommendedAction }, scoreBreakdown: { fitOffer, ats: atsEvidence, atsOptimized, atsBoost, contextSupport, semantic: semanticScore, recruiterCredibility, domainMismatch, cappedByKeywords, cappedByEvidence, pertinence: v2pertinence, fitMetier: v2fitMetier, fitNiveauFactor: v2fitNiveauFactor, fitNiveau: fitAssessment?.fitNiveau === "over_qualified" ? "trop_junior" : fitAssessment?.fitNiveau === "under_qualified" ? "trop_senior" : "uncertain", forcePreuve: v2forcePreuve, credibiliteCv: v2credibiliteCv, evidenceGrounding: v2forcePreuve, recruiterCredibilityScore: v2credibiliteCv, atsReadiness: atsOptimized, overstatementRisk: domainMismatch ? 70 : Math.max(15, Math.round(atsBoost * 1.2)), badge: v2badge, distanceDomain: v2distanceDomain, debugOverlaps: fitAssessment?.debugOverlaps } };
 }
 
-// â”€â”€â”€ Dry Run Check (steps 1-4 only, no CV generation, no DB save) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Dry Run Check (steps 1-4 only, no CV generation, no DB save) ──
 export interface JobProfileAssessment {
   zoneScore: number;               // 0-100: % of job requirements covered by profile tags/skills
   positioningMatch: "aligned" | "adjacent" | "stretch";
@@ -3176,7 +3173,7 @@ function getPrecheckMeta(score: number): Pick<DryRunResult, "viability" | "prech
 }
 
 export async function runDryRunCheck(input: Pick<TailorInput, "jobText" | "mode" | "bodyMaxChars" | "allExperiences" | "allBullets" | "allSkills">, openai: OpenAI): Promise<DryRunResult> {
-  log("â•â•â•â•â•â• Dry Run Check (steps 1-4) â•â•â•â•â•â•");
+  log("══════ Dry Run Check (steps 1-4) ══════");
   const sanitizedInput = sanitizeTailorInput({
     ...input,
     profile: undefined,
@@ -3218,7 +3215,7 @@ export async function runDryRunCheck(input: Pick<TailorInput, "jobText" | "mode"
   };
 }
 
-// â”€â”€â”€ Fast Dry Run (100% deterministic, 0 LLM calls) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Fast Dry Run (100% deterministic, 0 LLM calls) ──
 export async function runFastDryRun(
   input: Pick<TailorInput, "jobText" | "allExperiences" | "allBullets">
 ): Promise<DryRunResult> {

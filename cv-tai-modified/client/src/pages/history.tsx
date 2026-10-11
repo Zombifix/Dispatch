@@ -56,7 +56,7 @@ function getTrackingMeta(run: any) {
 
 const MODE_META = {
   original: {
-    label: "Optimise",
+    label: "Fidele",
     icon: <ShieldCheck className="h-3 w-3" />,
     className: "bg-[rgba(31,179,199,0.1)] text-[#1fb3c7]",
   },
