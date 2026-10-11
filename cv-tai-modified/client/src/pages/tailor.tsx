@@ -2,10 +2,17 @@ import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { Layout } from "@/components/layout";
 import { useGenerateTailor, useCheckMatch } from "@/hooks/use-tailor";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Segmented } from "@/components/ui/segmented";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Eyebrow, PageHeader } from "@/components/ui/page-header";
+import { Mascot } from "@/components/brand/mascot";
+import { cn } from "@/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,11 +26,15 @@ import {
 import {
   AlertTriangle,
   ArrowRight,
+  Check,
+  ChevronDown,
   FileText,
   Info,
   Link2,
   RefreshCw,
+  SlidersHorizontal,
   Sparkles,
+  Target,
   WandSparkles,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -40,11 +51,6 @@ const SCRAPE_BLOCKED_DOMAINS = [
 ];
 
 const TAILOR_PREFS_KEY = "cv-tailor:preferences";
-const PANEL_CLASS = "rounded-[33.903px] border border-[rgba(225,231,239,0.7)] bg-[rgba(255,255,255,0.75)]";
-const FIELD_CLASS =
-  "h-[53px] rounded-[26.638px] border-[rgba(225,231,239,0.7)] bg-white px-[15px] text-[16px] text-[#0f1729] placeholder:text-[#65758b] focus-visible:ring-2 focus-visible:ring-[#6467f2]/20 focus-visible:ring-offset-0";
-const TEXTAREA_CLASS =
-  "rounded-[26.638px] border-[rgba(225,231,239,0.7)] bg-white px-[15px] py-[18px] text-[16px] leading-[24px] text-[#0f1729] placeholder:text-[#65758b] focus-visible:ring-2 focus-visible:ring-[#6467f2]/20 focus-visible:ring-offset-0";
 
 type Mode = "fidele" | "optimise";
 type InputMode = "lien" | "texte";
@@ -100,67 +106,43 @@ function getPrecheckVerdictMeta(verdict?: PrecheckVerdict) {
     case "go":
       return {
         label: "Go",
-        emphasisClassName: "text-green-600",
+        emphasisClassName: "text-success-strong",
         description: "Le triage rapide voit assez de signaux pour lancer la génération sereinement.",
       };
     case "prudence":
       return {
         label: "Prudence",
-        emphasisClassName: "text-amber-600",
+        emphasisClassName: "text-warning",
         description: "Le triage rapide reste ouvert, mais l'annonce demande une lecture plus fine ou une source plus propre.",
       };
     case "faible_chance":
       return {
         label: "Faible chance",
-        emphasisClassName: "text-red-600",
+        emphasisClassName: "text-destructive",
         description: "Le triage rapide voit peu de preuves directes pour cette offre à ce stade.",
       };
     default:
       return {
         label: "Pre-check",
-        emphasisClassName: "text-[#65758f]",
+        emphasisClassName: "text-muted-foreground",
         description: "Le triage rapide reste un signal indicatif avant la génération complète.",
       };
   }
 }
 
+/** Link vs pasted text: two exclusive modes, so a segmented control rather than an on/off switch. */
 function InputModeSwitch({ value, onChange }: { value: InputMode; onChange: (value: InputMode) => void }) {
-  const isLink = value === "lien";
-
   return (
-    <div className="flex items-center gap-[14px] text-[16px] text-[#65758b]">
-      <button
-        type="button"
-        className={isLink ? "font-medium text-[#0f1729]" : "font-normal"}
-        onClick={() => onChange("lien")}
-      >
-        Lien
-      </button>
-
-      <button
-        type="button"
-        role="switch"
-        aria-checked={!isLink}
-        aria-label="Basculer entre lien et texte"
-        onClick={() => onChange(isLink ? "texte" : "lien")}
-        className="relative h-7 w-[52px] rounded-full bg-[#d7dce5] transition-colors"
-      >
-        <span
-          className={[
-            "absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-all",
-            isLink ? "left-1" : "left-[27px]",
-          ].join(" ")}
-        />
-      </button>
-
-      <button
-        type="button"
-        className={!isLink ? "font-medium text-[#0f1729]" : "font-normal"}
-        onClick={() => onChange("texte")}
-      >
-        Texte
-      </button>
-    </div>
+    <Segmented
+      aria-label="Source de l'annonce"
+      className="h-10 w-[200px] [&_button]:text-sm"
+      value={value}
+      onChange={onChange}
+      options={[
+        { value: "lien", label: "Lien" },
+        { value: "texte", label: "Texte" },
+      ]}
+    />
   );
 }
 
@@ -173,14 +155,22 @@ function Notice({
   tone?: "warning" | "info";
   children: ReactNode;
 }) {
-  const palette =
-    tone === "info"
-      ? "border-[#ced8ff] bg-[#edf2ff] text-[#4d63cb]"
-      : "border-[#ead6a3] bg-[#fff7e6] text-[#8a6c2b]";
-
-  return <div className={`flex items-start gap-2 rounded-[18px] border px-3 py-3 text-[13px] leading-[18px] ${palette}`}>{icon}<span>{children}</span></div>;
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-2 rounded-md border px-3 py-3 text-sm leading-5",
+        tone === "info"
+          ? "border-primary/20 bg-primary-soft/50 text-primary-strong"
+          : "border-warning/30 bg-warning-soft/60 text-warning-strong",
+      )}
+    >
+      {icon}
+      <span>{children}</span>
+    </div>
+  );
 }
 
+/** Figma radio card (Fidèle / Optimisé). */
 function ModeOption({
   title,
   description,
@@ -199,30 +189,128 @@ function ModeOption({
   return (
     <button
       type="button"
+      role="radio"
+      aria-checked={active}
       onClick={onClick}
-      className={[
-        "w-full rounded-[26.638px] border p-[20.584px] text-left transition-colors",
-        active ? "border-[#6467f2] bg-transparent" : "border-[rgba(225,231,239,0.7)] bg-white",
-      ].join(" ")}
+      className={cn(
+        "flex w-full flex-col gap-2.5 rounded-2xl border bg-card p-5 text-left transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/10",
+        active ? "border-primary" : "border-border/70 hover:border-border",
+      )}
     >
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-[9.687px] text-[#0f1729]">
+      <span className="flex w-full items-center justify-between gap-4">
+        <span className="flex items-center gap-2.5 text-base font-medium leading-[17px] text-foreground [&_svg]:size-[19px]">
           {icon}
-          <span className="text-[16px] font-medium leading-[16.951px]">{title}</span>
-        </div>
+          {title}
+        </span>
         {badge}
-      </div>
-      <p className="mt-[9.687px] max-w-[295px] text-[14px] font-medium leading-[24.216px] text-[#65758b]">{description}</p>
+      </span>
+      <span className="text-sm font-medium leading-6 text-muted-foreground">{description}</span>
     </button>
   );
 }
 
 function ResourceRow({ children }: { children: ReactNode }) {
   return (
-    <li className="flex items-center gap-2 text-[16px] leading-[24.216px] text-[#65758b]">
-      <ArrowRight className="h-[16.951px] w-[16.951px] flex-shrink-0 text-[#6467f2]" />
+    <li className="flex items-start gap-2 text-base leading-6 text-muted-foreground">
+      <ArrowRight className="mt-[3px] size-[17px] shrink-0 text-primary" />
       <span>{children}</span>
     </li>
+  );
+}
+
+function SummaryRow({ label, value, muted = false }: { label: string; value: string; muted?: boolean }) {
+  return (
+    <div className="flex items-center justify-between text-base leading-6">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={cn("font-medium", muted ? "text-muted-foreground" : "text-foreground")}>{value}</span>
+    </div>
+  );
+}
+
+type GenerationPhase = "idle" | "check" | "generate";
+
+function SubmitButton({ phase, className }: { phase: GenerationPhase; className?: string }) {
+  return (
+    <Button type="submit" size="lg" disabled={phase !== "idle"} className={className}>
+      {phase === "check" ? (
+        <>
+          <RefreshCw className="animate-spin" />
+          Analyse du match...
+        </>
+      ) : phase === "generate" ? (
+        <>
+          <RefreshCw className="animate-spin" />
+          Génération en cours...
+        </>
+      ) : (
+        <>
+          <WandSparkles />
+          Générer le CV
+        </>
+      )}
+    </Button>
+  );
+}
+
+/**
+ * Pipeline steps shown while the CV is generated. The first step maps to the real pre-check
+ * request; generation steps advance on typical timings (the API answers in a single call) and the
+ * last one stays "en cours" until the result arrives — it is never shown as done before that.
+ */
+const GENERATION_STEPS = [
+  { label: "Lecture de l’annonce", after: 0 },
+  { label: "Sélection des expériences", after: 0 },
+  { label: "Rédaction du CV", after: 8 },
+  { label: "Évaluation du résultat", after: 22 },
+] as const;
+
+function GenerationProgress({ phase, compact = false }: { phase: "check" | "generate"; compact?: boolean }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    setElapsed(0);
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [phase]);
+
+  const current =
+    phase === "check"
+      ? 0
+      : GENERATION_STEPS.reduce((index, step, i) => (i > 0 && elapsed >= step.after ? i : index), 1);
+
+  if (compact) {
+    return (
+      <p className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+        <span className="size-2 animate-pulse rounded-full bg-primary" />
+        {GENERATION_STEPS[current].label}… <span className="tabular-nums">{elapsed}s</span>
+      </p>
+    );
+  }
+
+  return (
+    <ol className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/85 px-5 py-5" aria-live="polite">
+      {GENERATION_STEPS.map((step, i) => {
+        const done = i < current;
+        const active = i === current;
+        return (
+          <li key={step.label} className="flex items-center gap-3 text-base leading-6">
+            <span
+              className={cn(
+                "flex size-5 shrink-0 items-center justify-center rounded-full border",
+                done && "border-success bg-success text-primary-foreground",
+                active && "border-primary",
+                !done && !active && "border-border",
+              )}
+            >
+              {done ? <Check className="size-3" /> : active ? <span className="size-2 animate-pulse rounded-full bg-primary" /> : null}
+            </span>
+            <span className={cn(done || active ? "text-foreground" : "text-muted-foreground", active && "font-medium")}>{step.label}</span>
+            {active ? <span className="ml-auto text-sm tabular-nums text-muted-foreground">{elapsed}s</span> : null}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
@@ -243,6 +331,7 @@ export default function Tailor() {
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [scrapeFailReason, setScrapeFailReason] = useState<string | null>(null);
   const [scrapeNotice, setScrapeNotice] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -292,11 +381,12 @@ export default function Tailor() {
 
   const urlWarning = getUrlWarning(url);
   const hasAnnouncement = Boolean(url.trim() || text.trim());
-  const isBusy = checkMatch.isPending || generate.isPending;
   const verdictMeta = getPrecheckVerdictMeta(pendingConfirm?.verdict);
-  const fastLaneMode = mode === "optimise" ? "Optimise" : "Fidele";
-  const fastLaneAnnouncement = hasAnnouncement ? "Renseignee" : "A remplir";
-  const fastLaneLimits = introMaxChars || bodyMaxChars ? "Personnalisees" : "Auto";
+  const fastLaneMode = mode === "optimise" ? "Optimisé" : "Fidèle";
+  const fastLaneAnnouncement = hasAnnouncement ? "Renseignée" : "À ajouter";
+  const fastLaneLimits = introMaxChars || bodyMaxChars ? "Personnalisées" : "Auto";
+  const hasAdvancedValues = Boolean(introMaxChars || bodyMaxChars || extraContext.trim());
+  const phase: GenerationPhase = checkMatch.isPending ? "check" : generate.isPending ? "generate" : "idle";
 
   const handleUrlChange = (value: string) => {
     const { url: normalized, converted } = normalizeLinkedInUrl(value);
@@ -379,249 +469,215 @@ export default function Tailor() {
   return (
     <>
       <Layout>
-        <div className="mx-auto w-full max-w-[1427px] pb-6">
-          <section className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div className="space-y-2">
-              <div className="inline-flex w-fit items-center gap-2 rounded-full border border-border/70 bg-background/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                <WandSparkles className="h-3.5 w-3.5 text-primary" />
-                Tailoring
-              </div>
-              <h1 className="text-4xl font-extrabold tracking-tight text-foreground">Adapter ton CV à une offre</h1>
-              <p className="text-xl text-muted-foreground">Colle une offre pour extraire les attentes clés et ajuster ton CV.</p>
-            </div>
-          </section>
+        <div className="flex flex-col gap-6 pb-6">
+          <PageHeader
+            eyebrow="Tailoring"
+            title="Adapter ton CV à une offre"
+            description="Colle une offre pour extraire les attentes clés et ajuster ton CV."
+          />
 
-          <form onSubmit={handleSubmit} className="mt-8 grid gap-[29px] xl:grid-cols-[minmax(0,1010px)_388px]">
-            <div className="space-y-[29px]">
-              <section className={`${PANEL_CLASS} overflow-hidden`}>
-                {/* Header with border-bottom */}
-                <div className="border-b border-[rgba(225,231,239,0.6)] bg-[rgba(241,245,249,0.2)] px-[33px] py-5">
+          <form onSubmit={handleSubmit} className="grid gap-7 xl:grid-cols-[minmax(0,1fr)_388px]">
+            <div className="flex min-w-0 flex-col gap-7">
+              {/* ── Annonce cible ─────────────────────────────────────────── */}
+              <Card variant="panel" className="overflow-hidden">
+                <div className="border-b border-border/60 bg-secondary/20 px-6 pb-5 pt-5 md:px-[34px]">
                   <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="space-y-1">
-                      <p className="text-[14px] font-semibold uppercase tracking-[2.9px] text-[#65758b]">Annonce cible</p>
-                      <h2 className="text-[24px] font-semibold tracking-[-0.025em] text-[#0f1729]">Colle l'offre complète ou un extrait</h2>
+                    <div className="flex flex-col gap-1">
+                      <Eyebrow>Annonce cible</Eyebrow>
+                      <h2 className="text-2xl font-semibold tracking-[-0.025em] text-foreground">Colle l’offre complète ou un extrait</h2>
                     </div>
-                    <div className="flex items-center gap-2 text-[16px] font-medium text-[#2563eb]">
-                      <Info className="h-[17px] w-[17px]" />
-                      Plus l'offre est précise, plus l'analyse est fiable
-                    </div>
+                    <p className="flex items-center gap-2.5 text-base font-medium text-primary">
+                      <Target className="size-[17px]" />
+                      Plus l’offre est précise, plus l’analyse est fiable
+                    </p>
                   </div>
                 </div>
-                {/* Body */}
-                <div className="p-[33px]">
-                  <div className="space-y-[19px]">
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div className="space-y-1">
-                        <h3 className="text-[19px] font-semibold text-[#0f1729]">Ajoute une offre</h3>
-                        <p className="text-[17px] text-[#65758b]">Colle un lien ou du texte pour servir de base à l'adaptation.</p>
-                      </div>
-                      <InputModeSwitch value={inputMode} onChange={setInputMode} />
+
+                <div className="flex flex-col gap-5 p-6 md:p-[34px]">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="flex flex-col gap-2">
+                      <h3 className="text-xl font-semibold leading-6 text-foreground">Ajoute une offre</h3>
+                      <p className="text-base text-muted-foreground">Colle un lien ou du texte pour servir de base à l’adaptation.</p>
                     </div>
+                    <InputModeSwitch value={inputMode} onChange={setInputMode} />
+                  </div>
 
-                    {inputMode === "lien" ? (
-                      <div className="space-y-3">
-                        <div className="relative">
-                          <Link2 className="absolute left-[17px] top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-[#65758b]" />
-                          <Input
-                            value={url}
-                            onChange={(event) => handleUrlChange(event.target.value)}
-                            placeholder="Colle un lien vers l'annonce LinkedIn, Welcome to the Jungle, etc..."
-                            className={`${FIELD_CLASS} pl-[44px]`}
-                          />
-                        </div>
-
-                        {urlWarning ? (
-                          <Notice icon={<AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />}>{urlWarning}</Notice>
-                        ) : null}
-
-                        {urlConverted && !urlWarning ? (
-                          <Notice tone="info" icon={<Info className="mt-0.5 h-4 w-4 flex-shrink-0" />}>
-                            URL LinkedIn convertie automatiquement pour une récupération plus stable.
-                          </Notice>
-                        ) : null}
-
-                        {scrapeFailReason ? (
-                          <Notice icon={<AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />}>
-                            {scrapeFailReason} Colle le texte pour continuer.
-                          </Notice>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {scrapeNotice ? (
-                          <Notice icon={<Info className="mt-0.5 h-4 w-4 flex-shrink-0" />}>{scrapeNotice}</Notice>
-                        ) : null}
-
-                        <Textarea
-                          value={text}
-                          onChange={(event) => {
-                            setText(event.target.value);
-                            if (event.target.value) setScrapeNotice(null);
-                          }}
-                          placeholder="Colle le texte brut de l'annonce ici..."
-                          className={`min-h-[260px] ${TEXTAREA_CLASS}`}
+                  {inputMode === "lien" ? (
+                    <div className="flex flex-col gap-3">
+                      <div className="relative">
+                        <Link2 className="pointer-events-none absolute left-[15px] top-1/2 size-[19px] -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          value={url}
+                          onChange={(event) => handleUrlChange(event.target.value)}
+                          placeholder="Colle un lien vers l’annonce LinkedIn, Welcome to the Jungle, etc..."
+                          className="h-[58px] pl-12"
                         />
                       </div>
-                    )}
-                  </div>
+
+                      {urlWarning ? (
+                        <Notice icon={<AlertTriangle className="mt-0.5 size-4 shrink-0" />}>{urlWarning}</Notice>
+                      ) : null}
+
+                      {urlConverted && !urlWarning ? (
+                        <Notice tone="info" icon={<Info className="mt-0.5 size-4 shrink-0" />}>
+                          URL LinkedIn convertie automatiquement pour une récupération plus stable.
+                        </Notice>
+                      ) : null}
+
+                      {scrapeFailReason ? (
+                        <Notice icon={<AlertTriangle className="mt-0.5 size-4 shrink-0" />}>
+                          {scrapeFailReason} Colle le texte pour continuer.
+                        </Notice>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      {scrapeNotice ? (
+                        <Notice icon={<Info className="mt-0.5 size-4 shrink-0" />}>{scrapeNotice}</Notice>
+                      ) : null}
+
+                      <Textarea
+                        value={text}
+                        onChange={(event) => {
+                          setText(event.target.value);
+                          if (event.target.value) setScrapeNotice(null);
+                        }}
+                        placeholder="Colle le texte brut de l’annonce ici..."
+                        className="min-h-[260px]"
+                      />
+                    </div>
+                  )}
                 </div>
-              </section>
+              </Card>
 
-              <div className="grid gap-[29px] xl:grid-cols-[minmax(0,1fr)_387px]">
-                <section className={`${PANEL_CLASS} p-[25.427px]`}>
-                  <div className="space-y-[10px]">
-                    <h3 className="text-[20px] font-semibold tracking-[-0.024em] text-[#0f1729]">
-                      RÉGLAGES <span className="font-medium text-[#5e5b73]">(optionnel)</span>
-                    </h3>
-                    <p className="max-w-[542px] text-[16px] leading-[24.216px] text-[#65758b]">
-                      Laisse vide pour un comportement auto, ou contraints ton template si besoin.
-                    </p>
+              {/* ── Mode ─────────────────────────────────────────────────── */}
+              <Card variant="panel" className="flex flex-col gap-5 p-6">
+                <div className="flex flex-col gap-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <SlidersHorizontal className="size-[19px] text-foreground" />
+                    <h3 className="text-xl font-semibold tracking-[-0.025em] text-foreground">Mode</h3>
                   </div>
+                  <p className="text-base leading-6 text-muted-foreground">Choisis comment le CV est retravaillé.</p>
+                </div>
 
-                  <div className="mt-6 grid gap-[14px] md:grid-cols-2">
-                    <div className="space-y-[10px]">
-                      <Label className="text-[16px] font-medium leading-[19.373px] text-[#65758b]">Intro (longueur)</Label>
-                      <Input
-                        type="number"
-                        value={introMaxChars}
-                        onChange={(event) => setIntroMaxChars(event.target.value)}
-                        placeholder="Ex: 300"
-                        className={FIELD_CLASS}
+                <div role="radiogroup" aria-label="Mode de génération" className="grid gap-3.5 md:grid-cols-2">
+                  <ModeOption
+                    title="Optimisé"
+                    description="Le meilleur mode pour candidater vite, sans changer le fond."
+                    icon={<Sparkles className="text-primary" />}
+                    badge={<Badge variant="default" className="font-semibold uppercase tracking-[0.14em]">Recommandé</Badge>}
+                    active={mode === "optimise"}
+                    onClick={() => setMode("optimise")}
+                  />
+                  <ModeOption
+                    title="Fidèle"
+                    description="Idéal pour voir la sélection brute, sans modification."
+                    icon={<FileText className="text-muted-foreground" />}
+                    badge={<span className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Brut</span>}
+                    active={mode === "fidele"}
+                    onClick={() => setMode("fidele")}
+                  />
+                </div>
+              </Card>
+
+              {/* ── Options avancées (repliées par défaut) ───────────────── */}
+              <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+                <Card variant="panel" className="overflow-hidden">
+                  <CollapsibleTrigger className="flex w-full items-center justify-between gap-4 p-6 text-left focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-primary/10">
+                    <span className="flex flex-col gap-1">
+                      <span className="text-xl font-semibold tracking-[-0.025em] text-foreground">
+                        Options avancées <span className="font-medium text-muted-foreground">(optionnel)</span>
+                      </span>
+                      <span className="text-base leading-6 text-muted-foreground">
+                        Longueurs et contexte recruteur. Laisse vide pour un résultat automatique.
+                      </span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-3">
+                      {hasAdvancedValues ? <Badge variant="primary">Personnalisées</Badge> : null}
+                      <ChevronDown className={cn("size-5 text-muted-foreground transition-transform", advancedOpen && "rotate-180")} />
+                    </span>
+                  </CollapsibleTrigger>
+
+                  <CollapsibleContent className="flex flex-col gap-5 px-6 pb-6">
+                    <div className="grid gap-3.5 md:grid-cols-2">
+                      <div className="flex flex-col gap-2.5">
+                        <Label htmlFor="intro-max" className="text-base font-medium text-muted-foreground">Intro (longueur)</Label>
+                        <Input
+                          id="intro-max"
+                          type="number"
+                          value={introMaxChars}
+                          onChange={(event) => setIntroMaxChars(event.target.value)}
+                          placeholder="Ex: 300"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-2.5">
+                        <Label htmlFor="body-max" className="text-base font-medium text-muted-foreground">Expériences (longueur)</Label>
+                        <Input
+                          id="body-max"
+                          type="number"
+                          value={bodyMaxChars}
+                          onChange={(event) => setBodyMaxChars(event.target.value)}
+                          placeholder="Ex: 3400"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2.5">
+                      <Label htmlFor="extra-context" className="text-base font-medium text-muted-foreground">Contexte additionnel</Label>
+                      <Textarea
+                        id="extra-context"
+                        value={extraContext}
+                        onChange={(event) => setExtraContext(event.target.value)}
+                        maxLength={1000}
+                        placeholder="Ex : Le recruteur cherche surtout quelqu'un capable de structurer les pratiques design dans une équipe produit déjà mature."
+                        className="min-h-[140px]"
                       />
                     </div>
-
-                    <div className="space-y-[10px]">
-                      <Label className="text-[16px] font-medium leading-[19.373px] text-[#65758b]">Expériences (longueur)</Label>
-                      <Input
-                        type="number"
-                        value={bodyMaxChars}
-                        onChange={(event) => setBodyMaxChars(event.target.value)}
-                        placeholder="Ex: 3400"
-                        className={FIELD_CLASS}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mt-[19px] space-y-[10px]">
-                    <Label className="text-[16px] font-medium leading-[19.373px] text-[#65758b]">Contexte additionnel</Label>
-                    <Textarea
-                      value={extraContext}
-                      onChange={(event) => setExtraContext(event.target.value)}
-                      maxLength={1000}
-                      placeholder="Ex : Le recruteur cherche surtout quelqu'un capable de structurer les pratiques design dans une equipe produit deja mature."
-                      className={`min-h-[170px] ${TEXTAREA_CLASS}`}
-                    />
-                  </div>
-                </section>
-
-                <section className={`${PANEL_CLASS} p-[25.427px]`}>
-                  <div className="space-y-[10px]">
-                    <div className="flex items-center gap-[10px]">
-                      <Sparkles className="h-[19px] w-[19px] text-[#6467f2]" />
-                      <h3 className="text-[20px] font-semibold tracking-[-0.024em] text-[#0f1729]">Mode</h3>
-                    </div>
-                    <p className="text-[16px] leading-[24.216px] text-[#65758b]">
-                      Reformule legerement pour mieux coller a l'annonce sans changer le fond.
-                    </p>
-                  </div>
-
-                  <div className="mt-[19px] space-y-[14px]">
-                    <ModeOption
-                      title="Fidele"
-                      description="Ideal pour juger la selection brute de la library, sans reecriture."
-                      icon={<FileText className="h-[19px] w-[19px] text-[#65758b]" />}
-                      badge={<span className="text-[13px] font-medium uppercase tracking-[0.18em] text-[#65758b]">Brut</span>}
-                      active={mode === "fidele"}
-                      onClick={() => setMode("fidele")}
-                    />
-
-                    <ModeOption
-                      title="Optimise"
-                      description="Le meilleur mode pour candidater vite quand le fond est deja bon."
-                      icon={<Sparkles className="h-[19px] w-[19px] text-[#6467f2]" />}
-                      badge={
-                        <span className="rounded-full bg-[#6467f2] px-[10px] py-[4px] text-[12px] font-semibold uppercase tracking-[0.14em] text-[#f8fafc]">
-                          Recommande
-                        </span>
-                      }
-                      active={mode === "optimise"}
-                      onClick={() => setMode("optimise")}
-                    />
-                  </div>
-                </section>
-              </div>
+                  </CollapsibleContent>
+                </Card>
+              </Collapsible>
             </div>
 
-            <aside className="space-y-[19px] xl:sticky xl:top-6 xl:self-start">
-              <section
-                className="rounded-[33.903px] border border-[rgba(100,103,242,0.2)] p-[25.427px]"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(180deg, rgba(127,129,249,0.08) 0%, rgba(255,255,255,1) 38%, rgba(255,255,255,1) 100%)",
-                }}
-              >
-                <p className="text-[14px] font-semibold uppercase tracking-[0.2em] text-[#65758b]">Fast lane</p>
-                <h2 className="mt-2 text-[32px] font-semibold tracking-[-0.02em] text-[#0f1729]">Lancer le tailoring</h2>
-                <p className="mt-2 text-[16px] leading-[24.216px] text-[#65758b]">Une fois l'annonce collee, tout part d'ici.</p>
-
-                <div className="mt-[19px] space-y-[14px] rounded-[26.638px] border border-[rgba(225,231,239,0.6)] bg-[rgba(255,255,255,0.85)] px-[20.584px] py-[30.271px]">
-                  <div className="flex items-center justify-between text-[16px] leading-[24.216px]">
-                    <span className="text-[#65758b]">Mode</span>
-                    <span className="font-medium text-[#0f1729]">{fastLaneMode}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[16px] leading-[24.216px]">
-                    <span className="text-[#65758b]">Annonce</span>
-                    <span className={hasAnnouncement ? "font-medium text-[#0f1729]" : "font-medium text-[#65758b]"}>{fastLaneAnnouncement}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[16px] leading-[24.216px]">
-                    <span className="text-[#65758b]">Limites</span>
-                    <span className="font-medium text-[#0f1729]">{fastLaneLimits}</span>
-                  </div>
+            {/* ── Aside ──────────────────────────────────────────────────── */}
+            <aside className="flex flex-col gap-5 xl:sticky xl:top-6 xl:self-start">
+              <Card variant="panel" className="hidden flex-col gap-5 border-primary/20 bg-highlight-panel p-6 xl:flex">
+                <div className="flex flex-col gap-2">
+                  <Eyebrow>Fast lane</Eyebrow>
+                  <h2 className="text-3xl font-semibold tracking-[-0.02em] text-foreground">Lancer le tailoring</h2>
+                  <p className="text-base leading-6 text-muted-foreground">Une fois l’annonce collée, tout part d’ici.</p>
                 </div>
 
-                <Button
-                  type="submit"
-                  disabled={isBusy}
-                  className="mt-[19px] h-[58px] w-full rounded-[19.373px] border border-[#f8fafc] bg-[#6467f2] px-4 text-[19px] font-medium text-[#f8fafc] shadow-[0_12px_18px_-4px_rgba(100,103,242,0.2),0_5px_7px_-5px_rgba(100,103,242,0.2)] hover:bg-[#5b5ff0]"
-                >
-                  {checkMatch.isPending ? (
-                    <>
-                      <RefreshCw className="mr-2 h-[19px] w-[19px] animate-spin" />
-                      Analyse du match...
-                    </>
-                  ) : null}
+                {phase !== "idle" ? (
+                  <GenerationProgress phase={phase} />
+                ) : (
+                  <div className="flex flex-col gap-3.5 rounded-2xl border border-border/60 bg-card/85 px-5 py-[30px]">
+                    <SummaryRow label="Mode" value={fastLaneMode} />
+                    <SummaryRow label="Annonce" value={fastLaneAnnouncement} muted={!hasAnnouncement} />
+                    <SummaryRow label="Limites" value={fastLaneLimits} />
+                  </div>
+                )}
 
-                  {generate.isPending ? (
-                    <>
-                      <RefreshCw className="mr-2 h-[19px] w-[19px] animate-spin" />
-                      Generation en cours...
-                    </>
-                  ) : null}
+                <SubmitButton phase={phase} className="w-full" />
+              </Card>
 
-                  {!checkMatch.isPending && !generate.isPending ? (
-                    <>
-                      <WandSparkles className="mr-2 h-[19px] w-[19px]" />
-                      Generer le CV
-                    </>
-                  ) : null}
-                </Button>
-              </section>
-
-              <section className="relative overflow-hidden rounded-[33.903px] border border-[rgba(225,231,239,0.7)] bg-[rgba(241,245,249,0.25)] px-[24.216px] pb-[30px] pt-[23.91px]">
-                <h3 className="text-[20px] font-semibold tracking-[-0.024em] text-[#0f1729]">Repères utiles</h3>
-                <ul className="mt-[16px] flex min-h-[188px] max-w-[316px] flex-col gap-[16px] pr-10">
-                  <ResourceRow>Utilise le texte brut si une annonce est longue, repetitive ou mal scrappee.</ResourceRow>
-                  <ResourceRow>Passe en fidele si tu veux juger la selection pure avant toute reformulation.</ResourceRow>
-                  <ResourceRow>Garde les limites en auto si ton template n'impose pas de contrainte stricte.</ResourceRow>
+              <Card variant="tint" className="relative min-h-[384px] overflow-hidden p-6">
+                <h3 className="text-xl font-semibold tracking-[-0.025em] text-foreground">Repères utiles</h3>
+                <ul className="mt-4 flex flex-col gap-4">
+                  <ResourceRow>Utilise le texte brut si une annonce est longue, répétitive ou mal scrappée.</ResourceRow>
+                  <ResourceRow>Passe en fidèle si tu veux juger la sélection pure avant toute reformulation.</ResourceRow>
+                  <ResourceRow>Garde les limites en auto si ton template n’impose pas de contrainte stricte.</ResourceRow>
                 </ul>
 
-                <img
-                  src="/tailor-help-illustration.png"
-                  alt="Illustration megaphone"
-                  className="pointer-events-none absolute bottom-0 right-0 w-[138px]"
-                />
-              </section>
+                <Mascot variant="megaphone" flip className="absolute bottom-0 right-0 h-[117px] w-[137px] opacity-90" imgClassName="object-cover object-top" />
+              </Card>
             </aside>
+
+            {/* Mobile / tablet: the action stays reachable without scrolling past the form. */}
+            <div className="sticky bottom-0 z-20 -mx-4 flex flex-col gap-3 border-t border-border/70 bg-background/90 px-4 py-3 backdrop-blur-xl md:-mx-8 md:px-8 xl:hidden">
+              {phase !== "idle" ? <GenerationProgress phase={phase} compact /> : null}
+              <SubmitButton phase={phase} className="w-full" />
+            </div>
           </form>
         </div>
       </Layout>
@@ -649,7 +705,7 @@ export default function Tailor() {
                 setPendingConfirm(null);
                 await doGenerate();
               }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className={buttonVariants({ variant: "destructive" })}
             >
               Générer quand même
             </AlertDialogAction>

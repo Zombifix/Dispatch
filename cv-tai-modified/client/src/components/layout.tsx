@@ -1,7 +1,19 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Clock3, LogOut, Menu, Settings, WandSparkles, X } from "lucide-react";
+import { ArrowRight, ChevronDown, Clock3, FileText, LogOut, Menu, Settings, SlidersHorizontal, X } from "lucide-react";
 import { useCurrentUser, useLogout } from "@/hooks/use-auth";
+import { Logo } from "@/components/brand/logo";
+import { Mascot } from "@/components/brand/mascot";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type NavItemDef = {
   title: string;
@@ -9,168 +21,181 @@ type NavItemDef = {
   icon: React.ElementType<{ className?: string }>;
 };
 
-function DispatchMark({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
-      <path d="M6 4.4L17 4.4" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-      <path d="M6 10L17 10" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-      <path d="M6 15.6L17 15.6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-      <circle cx="3.2" cy="4.4" r="1.4" fill="currentColor" />
-      <circle cx="3.2" cy="10" r="1.4" fill="currentColor" />
-      <circle cx="3.2" cy="15.6" r="1.4" fill="currentColor" />
-    </svg>
-  );
-}
-
-function SuperCvIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
-      <path d="M3.2 3.5V16.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M8 5V16.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M12.8 7V16.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M17 9.6V16.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 const NAV_ITEMS: NavItemDef[] = [
-  { title: "Super CV", url: "/library", icon: SuperCvIcon },
-  { title: "Tailoring", url: "/tailor", icon: WandSparkles },
+  { title: "Super CV", url: "/library", icon: FileText },
+  { title: "Tailoring", url: "/tailor", icon: SlidersHorizontal },
   { title: "Historique", url: "/history", icon: Clock3 },
-  { title: "Parametres", url: "/settings", icon: Settings },
+  { title: "Paramètres", url: "/settings", icon: Settings },
 ];
 
-function NavItem({ item, active }: { item: NavItemDef; active: boolean }) {
+/** Nav item (DA v2): soft-blue active state. `rail` collapses to an icon between lg and 1440px. */
+function NavItem({ item, active, rail, onNavigate }: { item: NavItemDef; active: boolean; rail: boolean; onNavigate?: () => void }) {
   return (
-    <Link href={item.url}>
-      <div
-        className={[
-          "flex h-8 items-center gap-3 rounded-[12px] px-3 transition-colors duration-150",
-          active
-            ? "bg-[#4e5bf2] text-white"
-            : "text-[#a8b3c8] hover:bg-[#363745]",
-        ].join(" ")}
-      >
-        <item.icon className="h-[18px] w-[18px] flex-shrink-0" />
-        <span className="text-[16px] font-normal leading-none">{item.title}</span>
-      </div>
+    <Link
+      href={item.url}
+      onClick={onNavigate}
+      title={rail ? item.title : undefined}
+      aria-label={item.title}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex h-12 items-center gap-3.5 rounded-lg px-4 text-base transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        rail && "lg:justify-center lg:px-0 wide:justify-start wide:px-4",
+        active
+          ? "bg-primary-soft/60 font-semibold text-primary"
+          : "font-medium text-foreground/80 hover:bg-secondary/70 hover:text-foreground [&_svg]:text-muted-foreground",
+      )}
+    >
+      <item.icon className="size-5 shrink-0" />
+      <span className={cn(rail && "lg:sr-only wide:not-sr-only")}>{item.title}</span>
     </Link>
   );
 }
 
-function Sidebar({ onClose }: { onClose?: () => void }) {
-  const [location] = useLocation();
-  const logout = useLogout();
-
+/** Bottom-of-sidebar tip with the mascot — points to the one action that improves every CV. */
+function SidebarTip({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <div className="flex h-full w-full flex-col bg-[#2a2b35] pb-6 pt-[33px]">
-      <div className="relative flex items-center justify-center px-6">
-        <Link href="/library">
-          <div className="flex cursor-pointer items-center gap-[10px]">
-            <img src="/logo-mark.svg" alt="" className="h-[16px] w-auto brightness-0 invert" />
-            <img src="/logo-wordmark.svg" alt="dispatch." className="h-[28px] w-auto brightness-0 invert" />
-          </div>
-        </Link>
-
-        {onClose ? (
-          <button
-            type="button"
-            onClick={onClose}
-            className="absolute right-4 rounded-lg p-1 text-[#627391] hover:bg-[#dfe4ec] lg:hidden"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        ) : null}
-      </div>
-
-      <div className="mt-8 px-2">
-        <div className="px-4 pb-2 pt-1">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-[#8892a4]">Navigation</p>
-        </div>
-        <nav className="space-y-2 px-2">
-          {NAV_ITEMS.map((item) => (
-            <NavItem
-              key={item.url}
-              item={item}
-              active={location === item.url || location.startsWith(`${item.url}/`) || (item.url === "/tailor" && location === "/")}
-            />
-          ))}
-        </nav>
-      </div>
-
-      <button
-        type="button"
-        onClick={() => logout.mutate()}
-        className="mt-auto mx-2 flex h-10 items-center justify-center gap-3 rounded-[12px] text-[14px] font-normal text-red-400 transition-colors hover:bg-red-500/20"
-      >
-        <LogOut className="h-5 w-5" />
-        <span className="leading-none">Déconnexion</span>
-      </button>
+    <div className="relative overflow-hidden rounded-2xl border border-primary/10 bg-primary-soft/30 p-4">
+      <p className="pr-16 text-sm font-semibold leading-5 text-foreground">Enrichis ton Super CV</p>
+      <p className="mt-2 text-xs leading-4 text-muted-foreground">Chaque bullet ajouté améliore tes prochains CV.</p>
+      <Link href="/library" onClick={onNavigate} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
+        Enrichir
+        <ArrowRight className="size-3" />
+      </Link>
+      <Mascot variant="cv" flip className="absolute right-1 top-1 size-16" imgClassName="object-cover object-top" />
     </div>
   );
 }
 
-export function Layout({ children, pageLabel }: { children: React.ReactNode; pageLabel?: string }) {
-  const { data: user } = useCurrentUser();
-  const [mobileOpen, setMobileOpen] = useState(false);
+/** App sidebar (DA v2): full height, no section label. `rail`: desktop instance, icon-only between lg and 1440px. */
+function Sidebar({ onClose, rail = false }: { onClose?: () => void; rail?: boolean }) {
+  const [location] = useLocation();
+  const logout = useLogout();
 
-  const avatarSeed = useMemo(() => user?.email?.trim() || "Theo Pornin", [user?.email]);
+  const isActive = (url: string) =>
+    location === url ||
+    location.startsWith(`${url}/`) ||
+    (url === "/history" && location.startsWith("/results/"));
 
   return (
-    <div className="flex min-h-screen bg-white">
-      <aside className="hidden w-[288px] flex-shrink-0 lg:block">
-        <Sidebar />
+    <div className="flex h-full w-full flex-col overflow-y-auto">
+      <div className={cn("relative flex items-center px-6 pb-8 pt-8", rail && "lg:justify-center lg:px-0 wide:justify-start wide:px-6")}>
+        <Link href="/library" onClick={onClose} aria-label="dispatch. — accueil">
+          <Logo wordmarkClassName={cn(rail && "lg:hidden wide:block")} />
+        </Link>
+        {onClose ? (
+          <Button variant="ghost" size="icon-sm" onClick={onClose} className="absolute right-4 lg:hidden" aria-label="Fermer le menu">
+            <X />
+          </Button>
+        ) : null}
+      </div>
+
+      <nav className={cn("flex flex-col gap-1.5 px-4", rail && "lg:px-3 wide:px-4")} aria-label="Navigation principale">
+        {NAV_ITEMS.map((item) => (
+          <NavItem key={item.url} item={item} active={isActive(item.url)} rail={rail} onNavigate={onClose} />
+        ))}
+      </nav>
+
+      <div className={cn("mt-auto flex flex-col gap-4 px-4 pb-5 pt-8", rail && "lg:px-3 wide:px-4")}>
+        <button
+          type="button"
+          onClick={() => logout.mutate()}
+          title={rail ? "Déconnexion" : undefined}
+          className={cn(
+            "flex h-12 w-full items-center gap-3.5 rounded-lg px-4 text-base font-medium text-foreground/80 transition-colors hover:bg-destructive-soft hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/30",
+            rail && "lg:justify-center lg:px-0 wide:justify-start wide:px-4",
+          )}
+        >
+          <LogOut className="size-5 shrink-0" />
+          <span className={cn(rail && "lg:sr-only wide:not-sr-only")}>Déconnexion</span>
+        </button>
+        <div className={cn(rail && "lg:hidden wide:block")}>
+          <SidebarTip onNavigate={onClose} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function initialsOf(email?: string | null) {
+  const local = (email || "").split("@")[0];
+  const parts = local.split(/[._-]+/).filter(Boolean);
+  const letters = parts.length >= 2 ? parts[0][0] + parts[1][0] : local.slice(0, 2);
+  return (letters || "?").toUpperCase();
+}
+
+/** Account menu, top-right of every page. */
+function UserPill() {
+  const { data: user } = useCurrentUser();
+  const logout = useLogout();
+  const name = user?.email?.split("@")[0] || "Mon compte";
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card py-2 pl-2 pr-3 text-left shadow-card transition-colors hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 md:pr-4"
+        aria-label="Menu du compte"
+      >
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-secondary text-sm font-semibold text-foreground">
+          {initialsOf(user?.email)}
+        </span>
+        <span className="hidden min-w-0 sm:block md:w-[150px]">
+          <span className="block truncate text-sm font-semibold leading-5 text-foreground">{name}</span>
+          <span className="block text-sm leading-5 text-muted-foreground">Crédits illimités</span>
+        </span>
+        <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-60 rounded-lg p-1.5">
+        <DropdownMenuLabel className="truncate text-xs font-normal text-muted-foreground">{user?.email}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild className="cursor-pointer gap-2 rounded-md">
+          <Link href="/settings">
+            <Settings className="size-4" />
+            Paramètres
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => logout.mutate()}
+          className="cursor-pointer gap-2 rounded-md text-destructive focus:bg-destructive-soft focus:text-destructive"
+        >
+          <LogOut className="size-4" />
+          Déconnexion
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+export function Layout({ children }: { children: React.ReactNode }) {
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  return (
+    <div className="bg-app flex min-h-screen">
+      <aside className="sticky top-0 hidden h-screen w-[88px] shrink-0 border-r border-border/60 bg-surface/80 backdrop-blur-xl lg:block wide:w-[248px]">
+        <Sidebar rail />
       </aside>
 
       {mobileOpen ? (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute left-0 top-0 h-full w-[288px] p-4">
+          <div className="absolute inset-0 bg-foreground/30" onClick={() => setMobileOpen(false)} />
+          <aside className="absolute left-0 top-0 h-full w-[280px] border-r border-border/60 bg-surface">
             <Sidebar onClose={() => setMobileOpen(false)} />
           </aside>
         </div>
       ) : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {pageLabel && (
-          <div className="w-full bg-[#1a1a1a] px-8 py-2.5">
-            <span className="text-[11px] font-semibold uppercase tracking-[2px] text-[#8892a4]">
-              {pageLabel}
-            </span>
-          </div>
-        )}
-        <header className="flex items-center px-4 pt-[20px] pb-[16px] md:px-7 lg:pt-[30px] lg:pb-[20px] lg:pr-[65px] lg:pl-8">
-          <button
-            type="button"
-            className="rounded-xl p-2 text-[#65758b] hover:bg-[#e7edf5] lg:hidden"
-            onClick={() => setMobileOpen(true)}
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-
-          <div className="ml-auto flex items-center">
-            <div className="flex items-center gap-3 rounded-[30px] bg-[#f7f7f7] px-4 py-2">
-              <div className="h-[44px] w-[44px] flex-shrink-0 overflow-hidden rounded-full">
-                <img
-                  src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(avatarSeed)}`}
-                  alt="avatar"
-                  className="h-full w-full object-cover"
-                  onError={(event) => {
-                    (event.target as HTMLImageElement).style.display = "none";
-                  }}
-                />
-              </div>
-              <div>
-                <p className="text-[14px] font-semibold leading-tight tracking-[-0.35px] text-[#0f1729]">
-                  {user?.email?.split("@")[0] || "Theo Pornin"}
-                </p>
-                <p className="text-[12px] tracking-[0.6px] text-[#65758b]">Crédit illimités</p>
-              </div>
-            </div>
+        <header className="flex items-center px-4 pb-2 pt-4 md:px-8 lg:px-10 lg:pt-5 wide:px-12">
+          <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Ouvrir le menu">
+            <Menu className="!size-5" />
+          </Button>
+          <div className="ml-auto">
+            <UserPill />
           </div>
         </header>
 
-        <main className="flex-1 px-4 pb-6 md:px-7 md:pb-8 lg:pl-8 lg:pr-[65px]">{children}</main>
+        <main className="flex-1 px-4 pb-12 md:px-8 lg:px-10 wide:px-12">
+          <div className="mx-auto w-full max-w-content">{children}</div>
+        </main>
       </div>
     </div>
   );

@@ -3,24 +3,28 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Status pill (history run cards / result header): 11px medium, full radius, optional 12px icon.
+ * `tag` is the squarer skill/keyword chip used inside the CV document.
+ */
 const badgeVariants = cva(
-  // Whitespace-nowrap: Badges should never wrap.
-  "whitespace-nowrap inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2" +
-  " hover-elevate " ,
+  "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-2xs font-medium [&_svg]:size-3 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default:
-          "border-transparent bg-primary text-primary-foreground shadow-xs",
-        secondary: "border-transparent bg-secondary text-secondary-foreground",
-        destructive:
-          "border-transparent bg-destructive text-destructive-foreground shadow-xs",
-
-        outline: " border [border-color:var(--badge-outline)] shadow-xs",
+        default: "bg-primary text-primary-foreground",
+        primary: "bg-primary-soft text-primary-strong",
+        secondary: "bg-secondary text-muted-foreground",
+        info: "bg-info-soft text-info",
+        success: "bg-success-soft text-success-strong",
+        warning: "bg-warning-soft text-warning-strong",
+        destructive: "bg-destructive-soft text-destructive",
+        outline: "border border-border/60 bg-card text-muted-foreground",
+        tag: "rounded-sm border border-primary/20 bg-transparent px-[11px] py-1 text-primary",
       },
     },
     defaultVariants: {
-      variant: "default",
+      variant: "secondary",
     },
   },
 )

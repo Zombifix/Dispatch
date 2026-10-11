@@ -1,92 +1,56 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Dispatch design tokens — source: Figma "Ecran" (node 67:632).
+ * Values are HSL triplets consumed by tailwind.config.ts as hsl(var(--x) / <alpha>).
+ * Rules of use: client/src/components/ui/DESIGN_SYSTEM.md
+ */
 @layer base {
   :root {
-    --font-sans: 'Plus Jakarta Sans', sans-serif;
-    --font-mono: 'JetBrains Mono', monospace;
+    --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-    /* Clean Tech Minimal Light Theme */
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    
-    /* Vibrant Indigo Primary */
-    --primary: 239 84% 67%;
-    --primary-foreground: 210 40% 98%;
-    
-    /* Subtle Gray Secondary */
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    
-    /* Muted Slate */
+    /* Neutrals */
+    --background: 220 50% 97.6%; /* #f5f8fd — cool off-white page, never pure white */
+    --foreground: 222 46% 11%; /* #0f1729 */
+    --muted-foreground: 215 16% 47%; /* #65758b */
+    --surface: 220 45% 99%; /* #fbfcfe — sidebar */
+    --field: 220 45% 97%; /* #f5f7fb — filled inputs (auth) */
+    --secondary: 210 40% 96%; /* #f1f5f9 — chips, tracks, segmented bg */
+    --secondary-foreground: 222 46% 11%;
     --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    
-    /* Bright Teal Accent */
-    --accent: 187 73% 45%;
-    --accent-foreground: 210 40% 98%;
-    
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-    
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 239 84% 67%;
-    
-    --radius: 0.75rem;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 46% 11%;
+    --border: 214 31% 91%; /* #e1e7ef */
+    --input: 214 31% 91%;
 
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
-  }
+    --card: 0 0% 100%; /* cards, inputs, dialogs sit above the tinted page */
+    --card-foreground: 222 46% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 46% 11%;
 
-  .dark {
-    --background: 222 47% 11%;
-    --foreground: 210 40% 98%;
-    --card: 222 47% 11%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 47% 11%;
-    --popover-foreground: 210 40% 98%;
-    
-    --primary: 239 84% 67%;
-    --primary-foreground: 210 40% 98%;
-    
-    --secondary: 217 32% 17%;
-    --secondary-foreground: 210 40% 98%;
-    
-    --muted: 217 32% 17%;
-    --muted-foreground: 215 20.2% 65.1%;
-    
-    --accent: 187 73% 45%;
-    --accent-foreground: 210 40% 98%;
-    
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    
-    --border: 217 32% 17%;
-    --input: 217 32% 17%;
-    --ring: 239 84% 67%;
+    /* Brand */
+    --primary: 221 83% 53%; /* #2563eb */
+    --primary-strong: 224 76% 48%; /* #1d4ed8 */
+    --primary-soft: 214 95% 93%; /* #dbeafe */
+    --primary-foreground: 210 40% 98%; /* #f8fafc */
+    --ring: 221 83% 53%;
 
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* Status */
+    --success: 142 71% 45%; /* #22c55e */
+    --success-strong: 142 72% 29%; /* #15803d */
+    --success-soft: 141 84% 93%; /* #dcfce7 */
+    --warning: 32 95% 44%; /* #d97706 */
+    --warning-strong: 26 90% 37%; /* #b45309 */
+    --warning-soft: 48 96% 89%; /* #fef3c7 */
+    --destructive: 0 72% 51%; /* #dc2626 */
+    --destructive-soft: 0 86% 97%; /* #fef2f2 */
+    --destructive-foreground: 0 0% 100%;
+    --info: 187 73% 45%; /* #1fb3c7 */
+
+    --radius: 12px;
   }
 }
 
@@ -95,19 +59,55 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground font-sans antialiased selection:bg-primary/20 selection:text-primary;
+    @apply bg-background text-foreground font-sans antialiased selection:bg-primary/20 selection:text-foreground;
   }
   h1, h2, h3, h4, h5, h6 {
-    @apply tracking-tight font-bold;
+    @apply tracking-tight;
   }
 }
 
 @layer utilities {
-  .glass {
-    @apply bg-background/80 backdrop-blur-xl border-border/50;
+  /* Translucent surfaces used by every card in the mockups */
+  .surface-card {
+    @apply border border-border/70 bg-card shadow-card;
   }
-  
-  .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent;
+  .surface-tint {
+    @apply border border-primary/10 bg-primary-soft/30;
+  }
+  /* Page background (DA v2): soft blue halo + subtle texture (dot grid + fine grain). */
+  .bg-app {
+    position: relative;
+    isolation: isolate;
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(60rem 22rem at 70% -6rem, hsl(var(--primary) / 0.09), transparent 70%),
+      radial-gradient(40rem 18rem at 100% 0, hsl(var(--primary-soft) / 0.6), transparent 70%);
+    background-repeat: no-repeat;
+  }
+  /* Dot grid: denser bottom-right (balances the top halo), a faint whisper elsewhere. Fixed so it doesn't scroll-shimmer. */
+  .bg-app::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image: radial-gradient(circle at 1px 1px, hsl(var(--primary) / 0.22) 1.1px, transparent 0);
+    background-size: 22px 22px;
+    -webkit-mask-image:
+      radial-gradient(ellipse 60% 50% at 85% 100%, #000 0%, transparent 70%),
+      linear-gradient(to top, rgb(0 0 0 / 0.4), rgb(0 0 0 / 0.12) 70%);
+    mask-image:
+      radial-gradient(ellipse 60% 50% at 85% 100%, #000 0%, transparent 70%),
+      linear-gradient(to top, rgb(0 0 0 / 0.4), rgb(0 0 0 / 0.12) 70%);
+  }
+  /* Fine paper grain, barely perceptible — keeps large flat areas from looking sterile. */
+  .bg-app::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.06 0 0 0 0 0.09 0 0 0 0 0.16 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 }

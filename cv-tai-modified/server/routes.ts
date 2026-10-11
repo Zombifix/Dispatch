@@ -16,6 +16,7 @@ import {
   runFastDryRun,
 } from "./tailoring-engine";
 import { createUser, getUserByEmail } from "./auth";
+import { resolveCompanyLogo } from "./company-logo";
 import type { User } from "@shared/schema";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
@@ -1266,6 +1267,23 @@ Reponds UNIQUEMENT en JSON :
     res.json(allRuns);
   });
 
+  // ── COMPANY LOGO — one-shot backfill for runs created before logo lookup existed ──
+  app.post("/api/runs/:id/company-logo", async (req, res) => {
+    try {
+      const userId = uid(req);
+      const run = await storage.getRun(userId, req.params.id);
+      if (!run) return res.status(404).json({ message: "Not found" });
+      const extracted = (run.jobPost?.extractedJson ?? {}) as Record<string, unknown>;
+      if ("companyLogoUrl" in extracted) return res.json({ companyLogoUrl: extracted.companyLogoUrl ?? null });
+      const companyLogoUrl = await resolveCompanyLogo(run.jobPost?.url);
+      await storage.mergeJobPostExtracted(userId, run.jobPostId, { companyLogoUrl });
+      res.json({ companyLogoUrl });
+    } catch (err: any) {
+      console.error("[LOGO] Error:", err.message);
+      res.status(500).json({ error: "Erreur serveur." });
+    }
+  });
+
   // ── TRACKING — persist application tracking to DB ──
   app.patch("/api/runs/:id/tracking", async (req, res) => {
     try {
@@ -1574,6 +1592,9 @@ JSON uniquement :
       }
 
       // Run Pipeline V2
+      // Company logo lookup runs in parallel with the pipeline (deterministic, never throws).
+      const companyLogoPromise = resolveCompanyLogo(resolvedInput.metadata.normalizedUrl);
+
       const result = await runTailorPipeline({
         jobText: resolvedInput.effectiveJobText,
         mode,
@@ -1593,7 +1614,7 @@ JSON uniquement :
       const jobPost = await storage.createJobPost(userId, {
         url: resolvedInput.metadata.normalizedUrl,
         rawText: resolvedInput.effectiveJobText,
-        extractedJson: { jobInput: resolvedInput.metadata } as any,
+        extractedJson: { jobInput: resolvedInput.metadata, companyLogoUrl: await companyLogoPromise } as any,
       });
 
       // Save run

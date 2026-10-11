@@ -1,24 +1,32 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Layout } from "@/components/layout";
 import { useRuns } from "@/hooks/use-tailor";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { PageHeader, StatGroup } from "@/components/ui/page-header";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Mascot } from "@/components/brand/mascot";
+import { CompanyAvatar } from "@/components/ui/company-avatar";
+import { cn } from "@/lib/utils";
+import { SCORE_THRESHOLDS, SCORE_TONE_BG, scoreTone } from "@/lib/score";
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowRight,
-  Check,
+  ArrowUpDown,
+  BarChart3,
   ChevronLeft,
   ChevronRight,
-  Clock,
   FileText,
-  RefreshCw,
+  Search,
   Send,
-  ShieldCheck,
-  Sparkles,
+  Users,
   WandSparkles,
   X,
-  Zap,
 } from "lucide-react";
 
 function getTracking(run: any) {
@@ -30,359 +38,345 @@ function getTracking(run: any) {
   }
 }
 
-function getTrackingMeta(run: any) {
+type BadgeVariant = NonNullable<BadgeProps["variant"]>;
+
+function getTrackingMeta(run: any): { label: string; variant: BadgeVariant } | null {
   const tracking = getTracking(run);
   if (!tracking?.applied) return null;
-  if (tracking.status === "interview") {
-    return {
-      label: "Entretien",
-      className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-      icon: <Check className="h-3 w-3" />,
-    };
-  }
-  if (tracking.status === "rejected") {
-    return {
-      label: "Refus",
-      className: "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400",
-      icon: <X className="h-3 w-3" />,
-    };
-  }
-  return {
-    label: "Postule",
-    className: "bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400",
-    icon: <Send className="h-3 w-3" />,
-  };
+  if (tracking.status === "interview") return { label: "Entretien", variant: "success" };
+  if (tracking.status === "rejected") return { label: "Refus", variant: "destructive" };
+  return { label: "Postulé", variant: "primary" };
 }
 
-const MODE_META = {
-  original: {
-    label: "Optimise",
-    icon: <ShieldCheck className="h-3 w-3" />,
-    className: "bg-[rgba(31,179,199,0.1)] text-[#1fb3c7]",
-  },
-  polished: {
-    label: "Optimise",
-    icon: <Zap className="h-3 w-3" />,
-    className: "bg-[rgba(31,179,199,0.1)] text-[#1fb3c7]",
-  },
-  adaptive: {
-    label: "Adaptatif",
-    icon: <RefreshCw className="h-3 w-3" />,
-    className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
-  },
-} as const;
+const MODE_LABEL: Record<string, string> = {
+  original: "CV fidèle",
+  polished: "CV optimisé",
+  adaptive: "CV adaptatif",
+};
 
-function getScoreTone(value: number) {
-  if (value >= 70) return "bg-green-500";
-  if (value >= 40) return "bg-amber-500";
-  return "bg-red-500";
-}
-
-function getBadgeMeta(badge?: string) {
-  if (badge === "probant") {
-    return { label: "Probant", className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" };
-  }
-  if (badge === "a_renforcer") {
-    return { label: "A renforcer", className: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" };
-  }
-  if (badge === "fragile") {
-    return { label: "Fragile", className: "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400" };
-  }
+function getBadgeMeta(badge?: string): { label: string; variant: BadgeVariant } | null {
+  if (badge === "probant") return { label: "Probant", variant: "success" };
+  if (badge === "a_renforcer") return { label: "À renforcer", variant: "warning" };
+  if (badge === "fragile") return { label: "Fragile", variant: "destructive" };
   return null;
 }
 
 function formatDate(iso: string) {
   try {
     const d = new Date(iso);
-    const day = d.getDate();
-    const month = d.toLocaleString("fr-FR", { month: "short" }).toUpperCase();
-    const year = d.getFullYear();
+    const date = d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
     const time = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-    return `${day} ${month}. ${year}, ${time}`;
+    return `${date}, ${time}`;
   } catch {
     return iso;
   }
 }
 
+const getScore = (run: any): number | null => {
+  const report = run.outputReportJson as any;
+  const value = report?.scoreBreakdown?.pertinence ?? report?.confidence;
+  return typeof value === "number" ? value : null;
+};
+
 const PAGE_SIZE = 10;
 
-function RunCard({ run, index }: { run: any; index: number }) {
-  const report = run.outputReportJson as any;
-  const modeMeta = MODE_META[run.mode as keyof typeof MODE_META] || MODE_META.polished;
-  const trackingMeta = getTrackingMeta(run);
-  const displayScore = report?.scoreBreakdown?.pertinence ?? report?.confidence;
-  const badgeMeta = getBadgeMeta(report?.scoreBreakdown?.badge);
-  const atsOptimized = report?.scoreBreakdown?.atsOptimized;
-  const selectedExperiences = report?.selectedExperiences?.length ?? 0;
-  const detectedLang = report?.detectedLanguage ? report.detectedLanguage.toUpperCase() : "";
+type RunFilter = "all" | "applied" | "interview";
+type RunSort = "recent" | "oldest" | "score";
 
-  const shortVerdict =
-    report?.diagnosis?.primaryDiagnosis ||
-    report?.confidenceReasoning ||
-    "Ouvre le resultat pour revoir le detail.";
+function Metric({ label, value, barClassName }: { label: string; value: number | null; barClassName: string }) {
+  return (
+    <div className="flex min-w-[112px] flex-col gap-1.5">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="text-xl font-bold leading-6 tabular-nums text-foreground">{value != null ? `${value}%` : "n/a"}</span>
+      <span className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+        {value != null ? (
+          <span className={cn("block h-full rounded-full", barClassName)} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
+        ) : null}
+      </span>
+    </div>
+  );
+}
+
+/** Application row (DA v2): identity · Pertinence · ATS · status · action. */
+function RunRow({ run, index }: { run: any; index: number }) {
+  const report = run.outputReportJson as any;
+  const trackingMeta = getTrackingMeta(run);
+  const score = getScore(run);
+  const badgeMeta = getBadgeMeta(report?.scoreBreakdown?.badge);
+  const ats = typeof report?.scoreBreakdown?.atsOptimized === "number" ? report.scoreBreakdown.atsOptimized : null;
+  const company: string = report?.jobCompany || "";
+  const verdict: string =
+    report?.diagnosis?.primaryDiagnosis || report?.confidenceReasoning || "Ouvre le résultat pour revoir le détail.";
+  const isWeak = score != null && score < SCORE_THRESHOLDS.partial;
 
   return (
-    <Link href={`/results/${run.id}`}>
-      <article
-        className="group cursor-pointer rounded-[28px] border border-[rgba(225,231,239,0.7)] bg-[rgba(255,255,255,0.75)] transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-lg hover:shadow-primary/5"
-        data-testid={`card-history-${index}`}
-      >
-        <div className="p-6 flex flex-col gap-3">
-          {/* Main row: left content + right score card */}
-          <div className="flex items-start justify-between gap-4">
-            {/* Left: date, title, company, badges, verdict */}
-            <div className="flex flex-col gap-3 min-w-0 flex-1">
-              {/* Date + lang */}
-              <div className="text-[11px] font-normal uppercase tracking-[1.98px] text-muted-foreground">
-                {formatDate(run.createdAt)}{detectedLang ? ` ${detectedLang}` : ""}
-              </div>
-
-              {/* Title + company */}
-              <div className="space-y-0.5">
-                <h3
-                  className="text-[20px] font-semibold leading-tight tracking-[-0.5px] text-foreground transition-colors group-hover:text-primary"
-                  data-testid={`text-history-title-${index}`}
-                >
-                  {report?.jobTitle || "Poste inconnu"}
-                </h3>
-                {report?.jobCompany && (
-                  <p className="text-sm text-muted-foreground">{report.jobCompany}</p>
-                )}
-              </div>
-
-              {/* Badges */}
-              <div className="flex flex-wrap gap-x-2 gap-y-1">
-                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${modeMeta.className}`}>
-                  {modeMeta.icon}
-                  {modeMeta.label}
-                </span>
-                {badgeMeta && (
-                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${badgeMeta.className}`}>
-                    <Sparkles className="h-3 w-3" />
-                    {badgeMeta.label}
-                  </span>
-                )}
-                {trackingMeta && (
-                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${trackingMeta.className}`}>
-                    {trackingMeta.icon}
-                    {trackingMeta.label}
-                  </span>
-                )}
-                {selectedExperiences > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-medium text-[#65758b]">
-                    <FileText className="h-3 w-3" />
-                    {selectedExperiences} experiences
-                  </span>
-                )}
-              </div>
-
-              {/* Verdict */}
-              <p className="text-sm leading-6 text-muted-foreground line-clamp-2">{shortVerdict}</p>
-            </div>
-
-            {/* Score card */}
-            <div className="flex-shrink-0 flex flex-col gap-3 bg-[rgba(255,255,255,0.8)] border border-[rgba(225,231,239,0.6)] rounded-[24px] p-[17px] min-w-[176px]">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] font-semibold uppercase tracking-[1.98px] text-muted-foreground">
-                  Pertinence
-                </span>
-                <span className="text-[20px] font-bold tabular-nums text-foreground">
-                  {displayScore != null ? `${displayScore}%` : "n/a"}
-                </span>
-              </div>
-              {displayScore != null && (
-                <div className="h-2 overflow-hidden rounded-full bg-[#f1f5f9]">
-                  <div
-                    className={`h-full rounded-full ${getScoreTone(displayScore)}`}
-                    style={{ width: `${Math.max(0, Math.min(100, displayScore))}%` }}
-                  />
-                </div>
-              )}
-              <div className="flex gap-3 text-xs">
-                <div className="flex flex-col gap-1">
-                  <p className="text-muted-foreground">ATS</p>
-                  <p className="font-semibold text-foreground">
-                    {typeof atsOptimized === "number" ? `${atsOptimized}%` : "n/a"}
-                  </p>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <p className="text-muted-foreground">Document</p>
-                  <p className="font-semibold text-foreground">{badgeMeta?.label || "—"}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* CTA - right aligned */}
-          <div className="flex items-center justify-end gap-1.5 text-sm font-medium text-[#2d4cd5]">
-            Voir le CV adapté
-            <ArrowRight className="h-4 w-4" />
+    <Card
+      className="grid grid-cols-1 items-center gap-5 p-5 transition-[border-color,box-shadow] hover:border-primary/25 lg:grid-cols-[minmax(0,1.5fr)_auto_minmax(0,1.2fr)_auto] lg:gap-6 lg:px-6"
+      data-testid={`card-history-${index}`}
+    >
+      {/* Identity */}
+      <div className="flex min-w-0 flex-col gap-2">
+        <span className="text-sm text-muted-foreground">{formatDate(run.createdAt)}</span>
+        <div className="flex min-w-0 items-center gap-4">
+          <CompanyAvatar name={company || report?.jobTitle} logoUrl={run.jobPost?.extractedJson?.companyLogoUrl} />
+          <div className="min-w-0">
+            <h3 className="truncate text-lg font-bold leading-6 tracking-[-0.02em] text-foreground" data-testid={`text-history-title-${index}`}>
+              {report?.jobTitle || "Poste inconnu"}
+            </h3>
+            {company ? <p className="truncate text-base text-muted-foreground">{company}</p> : null}
+            <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+              <FileText className="size-4" />
+              {MODE_LABEL[run.mode as string] ?? "CV adapté"}
+              {badgeMeta ? <Badge variant={badgeMeta.variant}>{badgeMeta.label}</Badge> : null}
+            </p>
           </div>
         </div>
-      </article>
-    </Link>
+      </div>
+
+      {/* Scores */}
+      <div className="flex gap-6 lg:border-l lg:border-border/60 lg:pl-6">
+        <Metric label="Pertinence" value={score} barClassName={score != null ? SCORE_TONE_BG[scoreTone(score)] : ""} />
+        <div className="border-l border-border/60 pl-6">
+          <Metric label="Score ATS" value={ats} barClassName="bg-primary" />
+        </div>
+      </div>
+
+      {/* Status */}
+      <div className="flex min-w-0 flex-col items-start gap-2 lg:border-l lg:border-border/60 lg:pl-6">
+        {trackingMeta ? (
+          <Badge variant={trackingMeta.variant} className="px-3 py-1 text-sm">
+            <span className={cn("size-2 rounded-full", trackingMeta.variant === "success" ? "bg-success" : trackingMeta.variant === "destructive" ? "bg-destructive" : "bg-primary")} />
+            {trackingMeta.label}
+          </Badge>
+        ) : null}
+        {isWeak && !trackingMeta ? (
+          <p className="flex items-start gap-2.5 rounded-lg bg-destructive-soft px-3.5 py-2.5 text-sm leading-5 text-destructive">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <span className="line-clamp-2">{verdict}</span>
+          </p>
+        ) : (
+          <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">{verdict}</p>
+        )}
+      </div>
+
+      {/* Action */}
+      <Button asChild variant="soft" className="justify-self-start lg:justify-self-end">
+        <Link href={`/results/${run.id}`}>
+          Voir l’analyse
+          <ArrowRight />
+        </Link>
+      </Button>
+    </Card>
   );
+}
+
+/**
+ * Runs created before logo lookup existed have no `companyLogoUrl` yet: resolve them once,
+ * one request at a time, then refresh the list. The server stores the answer (even "none").
+ */
+function useCompanyLogoBackfill(runs: any[] | undefined) {
+  const queryClient = useQueryClient();
+  const requested = useRef(new Set<string>());
+
+  useEffect(() => {
+    const pending = (runs ?? []).filter((run) => {
+      const extracted = run.jobPost?.extractedJson;
+      return run.jobPost?.url && !(extracted && "companyLogoUrl" in extracted) && !requested.current.has(run.id);
+    });
+    if (pending.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      let resolvedAny = false;
+      for (const run of pending.slice(0, 10)) {
+        if (cancelled) return;
+        requested.current.add(run.id);
+        try {
+          const res = await fetch(`/api/runs/${run.id}/company-logo`, { method: "POST", credentials: "include" });
+          if (res.ok) resolvedAny = true;
+        } catch {
+          // offline / server error: the initial stays, we'll retry on the next visit
+        }
+      }
+      if (resolvedAny && !cancelled) queryClient.invalidateQueries({ queryKey: ["/api/runs"] });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [runs, queryClient]);
 }
 
 export default function History() {
   const { data: runs, isLoading, error } = useRuns();
+  useCompanyLogoBackfill(runs);
   const [page, setPage] = useState(0);
+  const [filter, setFilter] = useState<RunFilter>("all");
+  const [sort, setSort] = useState<RunSort>("recent");
+  const [query, setQuery] = useState("");
 
-  const runsWithScore =
-    runs?.filter((run: any) => {
-      const report = run.outputReportJson as any;
-      return typeof (report?.scoreBreakdown?.pertinence ?? report?.confidence) === "number";
-    }) ?? [];
-
-  const averageScore =
-    runsWithScore.length > 0
-      ? Math.round(
-          runsWithScore.reduce((sum: number, run: any) => {
-            const report = run.outputReportJson as any;
-            return sum + (report?.scoreBreakdown?.pertinence ?? report?.confidence ?? 0);
-          }, 0) / runsWithScore.length,
-        )
-      : null;
-
+  const scores = (runs ?? []).map(getScore).filter((value): value is number => value != null);
+  const averageScore = scores.length > 0 ? Math.round(scores.reduce((sum, value) => sum + value, 0) / scores.length) : null;
   const appliedCount = runs?.filter((run: any) => getTracking(run)?.applied).length ?? 0;
   const interviewCount = runs?.filter((run: any) => getTracking(run)?.status === "interview").length ?? 0;
 
-  const totalPages = runs ? Math.ceil(runs.length / PAGE_SIZE) : 0;
-  const pagedRuns = runs ? runs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE) : [];
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredRuns = (runs ?? [])
+    .filter((run: any) => {
+      const tracking = getTracking(run);
+      if (filter === "applied" && !tracking?.applied) return false;
+      if (filter === "interview" && tracking?.status !== "interview") return false;
+      if (!normalizedQuery) return true;
+      const report = run.outputReportJson as any;
+      return `${report?.jobTitle ?? ""} ${report?.jobCompany ?? ""}`.toLowerCase().includes(normalizedQuery);
+    })
+    .sort((a: any, b: any) => {
+      if (sort === "score") return (getScore(b) ?? -1) - (getScore(a) ?? -1);
+      const diff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      return sort === "oldest" ? -diff : diff;
+    });
+
+  const totalPages = Math.ceil(filteredRuns.length / PAGE_SIZE);
+  const pagedRuns = filteredRuns.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  const toggleFilter = (next: RunFilter) => {
+    setFilter((current) => (current === next ? "all" : next));
+    setPage(0);
+  };
+
+  const hasRuns = !isLoading && !error && runs && runs.length > 0;
 
   return (
-    <Layout pageLabel="Historique">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 animate-in fade-in duration-500">
-        {/* Page header */}
-        <section className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="space-y-2">
-            <div className="inline-flex w-fit items-center gap-2 rounded-full border border-border/70 bg-background/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              <Clock className="h-3.5 w-3.5 text-primary" />
-              Historique
-            </div>
-            <h1 className="text-4xl font-extrabold tracking-tight text-foreground">
-              Derniers CV générés
-            </h1>
-            <p className="text-xl text-muted-foreground">
-              Retrouve l'historique de tes CV générés et suis tes candidatures.
-            </p>
-          </div>
-
-          <Link href="/tailor">
-            <Button className="h-11 rounded-2xl px-5 text-sm shadow-lg shadow-primary/20 flex-shrink-0">
-              <WandSparkles className="mr-2 h-4 w-4" />
-              Nouveau tailoring
+    <Layout>
+      <div className="flex flex-col gap-7 animate-in fade-in duration-500">
+        <PageHeader
+          eyebrow="Historique"
+          title="Candidatures récentes"
+          description="Retrouve l’historique de tes CV générés et suis tes candidatures."
+          actions={
+            <Button asChild size="lg">
+              <Link href="/tailor">
+                <WandSparkles />
+                Nouveau tailoring
+                <ArrowRight />
+              </Link>
             </Button>
-          </Link>
-        </section>
+          }
+        />
 
-        {/* Stats */}
-        {!isLoading && !error && runs && runs.length > 0 && (
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-[24px] border border-[rgba(225,231,239,0.7)] bg-[rgba(255,255,255,0.75)] px-[21px] pt-5 pb-9 shadow-sm flex flex-col gap-1">
-              <p className="text-sm font-semibold uppercase tracking-[2.2px] text-muted-foreground">Runs</p>
-              <p className="pt-1 text-3xl font-bold text-foreground">{runs.length}</p>
-              <p className="text-sm text-muted-foreground">CV générés et disponibles dans l'historique.</p>
-            </div>
+        {hasRuns ? (
+          <StatGroup
+            items={[
+              { icon: <FileText />, value: runs.length, label: "Candidatures", hint: "CV générés et disponibles dans l’historique." },
+              { icon: <Send />, value: appliedCount, label: "CV envoyés", hint: "CV envoyés à des offres.", onClick: () => toggleFilter("applied"), active: filter === "applied" },
+              { icon: <Users />, value: interviewCount, label: "Entretiens", hint: "Candidatures ayant donné lieu à un entretien.", onClick: () => toggleFilter("interview"), active: filter === "interview" },
+              { icon: <BarChart3 />, value: averageScore != null ? `${averageScore}%` : "n/a", label: "Adéquation moyenne", hint: "Avec les offres ciblées." },
+            ]}
+          />
+        ) : null}
 
-            <div className="rounded-[24px] border border-[rgba(225,231,239,0.7)] bg-[rgba(255,255,255,0.75)] px-[21px] pt-5 pb-9 shadow-sm flex flex-col gap-1">
-              <p className="text-sm font-semibold uppercase tracking-[2.2px] text-muted-foreground">CV envoyés</p>
-              <p className="pt-1 text-3xl font-bold text-foreground">{appliedCount}</p>
-              <p className="text-sm text-muted-foreground">CV envoyés à des offres.</p>
-            </div>
-
-            <div className="rounded-[24px] border border-[rgba(225,231,239,0.7)] bg-[rgba(255,255,255,0.75)] px-[21px] pt-5 pb-9 shadow-sm flex flex-col gap-1">
-              <p className="text-sm font-semibold uppercase tracking-[2.2px] text-muted-foreground">Entretiens obtenus</p>
-              <p className="pt-1 text-3xl font-bold text-foreground">{interviewCount}</p>
-              <p className="text-sm text-muted-foreground">Candidatures ayant donné lieu à un entretien.</p>
-            </div>
-
-            <div className="rounded-[24px] border border-[rgba(225,231,239,0.7)] bg-[rgba(255,255,255,0.75)] px-[21px] pt-5 pb-9 shadow-sm flex flex-col gap-1">
-              <p className="text-sm font-semibold uppercase tracking-[2.2px] text-muted-foreground">Adéquation moyenne</p>
-              <p className="pt-1 text-3xl font-bold text-foreground">
-                {averageScore != null ? `${averageScore}%` : "n/a"}
-              </p>
-              <p className="text-sm text-muted-foreground">Avec les offres</p>
-            </div>
-          </section>
-        )}
-
-        {/* Loading */}
-        {isLoading && (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {[1, 2, 3, 4].map((item) => (
-              <div key={item} className="h-48 rounded-[20px] bg-muted/40 animate-pulse" />
+        {isLoading ? (
+          <div className="flex flex-col gap-4">
+            {[1, 2, 3].map((item) => (
+              <div key={item} className="h-32 animate-pulse rounded-2xl bg-card/70" />
             ))}
           </div>
-        )}
+        ) : null}
 
-        {/* Error */}
-        {error && (
-          <div className="flex items-center gap-3 rounded-[20px] border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-            <AlertCircle className="h-4 w-4 flex-shrink-0" />
-            Impossible de charger l'historique.
+        {error ? (
+          <div className="flex items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive-soft p-4 text-sm text-destructive">
+            <AlertCircle className="size-4 shrink-0" />
+            Impossible de charger l’historique.
           </div>
-        )}
+        ) : null}
 
-        {/* Empty state */}
-        {!isLoading && !error && runs?.length === 0 && (
-          <Card className="border-2 border-dashed bg-transparent shadow-none">
-            <CardContent className="flex flex-col items-center justify-center gap-4 py-16 text-center">
-              <div className="rounded-2xl bg-muted/50 p-4">
-                <FileText className="h-8 w-8 text-muted-foreground" />
-              </div>
-              <div className="space-y-1">
-                <p className="font-semibold text-foreground">Aucun CV généré</p>
-                <p className="text-sm text-muted-foreground">Ton historique apparaîtra ici après ton premier tailoring.</p>
-              </div>
+        {!isLoading && !error && runs?.length === 0 ? (
+          <Card variant="panel" className="flex flex-col items-center justify-center gap-4 px-6 py-14 text-center">
+            <Mascot variant="thinking" className="size-32" />
+            <div className="flex flex-col gap-1">
+              <p className="text-xl font-semibold text-foreground">Aucune candidature pour l’instant</p>
+              <p className="text-base text-muted-foreground">Ton historique apparaîtra ici après ton premier tailoring.</p>
+            </div>
+            <Button asChild className="mt-2" data-testid="button-start-tailoring">
               <Link href="/tailor">
-                <Button variant="outline" className="mt-2 rounded-2xl" data-testid="button-start-tailoring">
-                  <WandSparkles className="mr-2 h-4 w-4" />
-                  Lancer un tailoring
-                </Button>
+                <WandSparkles />
+                Lancer un tailoring
               </Link>
-            </CardContent>
+            </Button>
           </Card>
-        )}
+        ) : null}
 
-        {/* Run list */}
-        {!isLoading && runs && runs.length > 0 && (
-          <section className="space-y-4">
-            <h2 className="text-xl font-semibold text-foreground">Runs recents</h2>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              {pagedRuns.map((run: any, i: number) => (
-                <RunCard key={run.id} run={run} index={i} />
-              ))}
+        {hasRuns ? (
+          <section className="flex flex-col gap-4" aria-label="Candidatures">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="relative w-full sm:max-w-[480px]">
+                <Search className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    setPage(0);
+                  }}
+                  placeholder="Rechercher un poste, une entreprise…"
+                  className="h-12 pl-12 shadow-card"
+                  aria-label="Rechercher dans l’historique"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                {filter !== "all" ? (
+                  <Button variant="ghost" onClick={() => toggleFilter(filter)}>
+                    <X />
+                    {filter === "applied" ? "CV envoyés" : "Entretiens"}
+                  </Button>
+                ) : null}
+                <Select value={sort} onValueChange={(value) => setSort(value as RunSort)}>
+                  <SelectTrigger className="h-12 w-[200px] gap-2 rounded-xl bg-card px-4 text-base shadow-card" aria-label="Trier">
+                    <ArrowUpDown className="size-4 text-muted-foreground" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="recent">Plus récent</SelectItem>
+                    <SelectItem value="oldest">Plus ancien</SelectItem>
+                    <SelectItem value="score">Meilleure pertinence</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            <div className="flex items-center justify-center gap-2 pt-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-xl h-9 px-4"
-                disabled={page === 0}
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-              >
-                <ChevronLeft className="h-4 w-4 mr-1" />
-                Précédent
-              </Button>
-              <span className="rounded-full border border-border/70 bg-background px-4 py-1.5 text-sm text-muted-foreground tabular-nums">
-                {page + 1} / {totalPages || 1}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-xl h-9 px-4"
-                disabled={page >= totalPages - 1}
-                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-              >
-                Suivant
-                <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
+            {filteredRuns.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
+                Aucune candidature ne correspond à ces critères.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {pagedRuns.map((run: any, i: number) => (
+                  <RunRow key={run.id} run={run} index={i} />
+                ))}
+              </div>
+            )}
+
+            <div className="flex flex-col items-center justify-between gap-3 pt-1 sm:flex-row">
+              <p className="text-sm text-muted-foreground">
+                {filteredRuns.length} candidature{filteredRuns.length > 1 ? "s" : ""} affichée{filteredRuns.length > 1 ? "s" : ""}
+              </p>
+              {totalPages > 1 ? (
+                <nav aria-label="Pagination" className="flex items-center gap-3">
+                  <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
+                    <ChevronLeft />
+                    Précédent
+                  </Button>
+                  <span className="text-sm tabular-nums text-muted-foreground">
+                    {page + 1} / {totalPages}
+                  </span>
+                  <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}>
+                    Suivant
+                    <ChevronRight />
+                  </Button>
+                </nav>
+              ) : null}
             </div>
           </section>
-        )}
+        ) : null}
       </div>
     </Layout>
   );

@@ -52,6 +52,7 @@ export interface IStorage {
 
   // Job Posts
   createJobPost(userId: number, jobPost: InsertJobPost): Promise<JobPost>;
+  mergeJobPostExtracted(userId: number, jobPostId: string, patch: Record<string, unknown>): Promise<void>;
 
   // Runs
   createRun(userId: number, run: InsertRun): Promise<Run>;
@@ -208,6 +209,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Job Posts
+  async mergeJobPostExtracted(userId: number, jobPostId: string, patch: Record<string, unknown>) {
+    const [current] = await db.select().from(jobPosts).where(and(eq(jobPosts.id, jobPostId), eq(jobPosts.userId, userId)));
+    if (!current) return;
+    const extracted = (current.extractedJson && typeof current.extractedJson === "object" ? current.extractedJson : {}) as Record<string, unknown>;
+    await db.update(jobPosts).set({ extractedJson: { ...extracted, ...patch } }).where(eq(jobPosts.id, jobPostId));
+  }
   async createJobPost(userId: number, jobPost: InsertJobPost) {
     const [created] = await db.insert(jobPosts).values({ ...jobPost, userId }).returning();
     return created;

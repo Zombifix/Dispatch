@@ -4,16 +4,20 @@ import { Layout } from "@/components/layout";
 import { useExperiences, useCreateExperience, useUpdateExperience, useDeleteExperience } from "@/hooks/use-experiences";
 import { useBullets, useCreateBullet, useUpdateBullet, useDeleteBullet } from "@/hooks/use-bullets";
 import { useSkills, useCreateSkill, useDeleteSkill } from "@/hooks/use-skills";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Button, type ButtonProps } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader, SectionTitle, Eyebrow } from "@/components/ui/page-header";
+import { Mascot } from "@/components/brand/mascot";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Plus, Building, Calendar, Pencil, RefreshCw, Briefcase, Zap, Upload, Sparkles, Check, X, GraduationCap, Globe, ChevronDown, HelpCircle, Target, SkipForward } from "lucide-react";
+import { Plus, Building, Calendar, Pencil, RefreshCw, Briefcase, Zap, Upload, Sparkles, Check, X, GraduationCap, Globe, ChevronDown, HelpCircle, Target } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Experience, Bullet } from "@shared/schema";
@@ -49,11 +53,47 @@ function useEnrichmentContext(): EnrichmentContext {
    ══════════════════════════════════════════════════════════════════ */
 interface Gap { id: string; dimension: string; question: string; priority: number; }
 
-function getDepthInfo(bulletCount: number) {
-  if (bulletCount === 0) return { label: "Vide", color: "#C45050", bg: "#FEF0EF", dots: 0 };
-  if (bulletCount <= 2) return { label: "Ebauche", color: "#B8941F", bg: "#FEF9EC", dots: 1 };
-  if (bulletCount <= 4) return { label: "Structure", color: "#4D8A5E", bg: "#EEF5EF", dots: 3 };
-  return { label: "Complet", color: "#2D7A3D", bg: "#E0F0E0", dots: 5 };
+type DepthInfo = {
+  label: string;
+  variant: "destructive" | "warning" | "success";
+  dotClass: string;
+  dots: number;
+};
+
+function getDepthInfo(bulletCount: number): DepthInfo {
+  if (bulletCount === 0) return { label: "Vide", variant: "destructive", dotClass: "bg-destructive", dots: 0 };
+  if (bulletCount <= 2) return { label: "Ébauche", variant: "warning", dotClass: "bg-warning", dots: 1 };
+  if (bulletCount <= 4) return { label: "Structuré", variant: "success", dotClass: "bg-success", dots: 3 };
+  return { label: "Complet", variant: "success", dotClass: "bg-success-strong", dots: 5 };
+}
+
+/** Selectable chip (contract type, category, language, level, extracted skills). */
+function ChoiceChip({ selected, className, ...props }: ButtonProps & { selected: boolean }) {
+  return (
+    <Button
+      type="button"
+      variant="secondary"
+      size="sm"
+      aria-pressed={selected}
+      className={cn(selected && "bg-primary-soft text-primary-strong hover:bg-primary-soft", className)}
+      {...props}
+    />
+  );
+}
+
+/** Small inline remove control inside a chip/tag. */
+function ChipRemoveButton({ className, ...props }: ButtonProps) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      className={cn("size-4 rounded-xs hover:bg-transparent hover:text-destructive [&_svg]:size-3", className)}
+      {...props}
+    >
+      <X />
+    </Button>
+  );
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -104,61 +144,51 @@ export default function Library() {
 
   return (
     <Layout>
-      <div className="flex flex-col gap-8 max-w-4xl">
-        <div className="space-y-2 mt-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Super CV</p>
-          <div className="space-y-1">
-            <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Bibliotheque source</h1>
-            <p className="text-sm text-muted-foreground">La base qui alimente tous tes tailorings.</p>
-          </div>
-        </div>
+      <div className="flex flex-col gap-7">
+        <PageHeader
+          eyebrow="Super CV"
+          title="Bibliothèque source"
+          description="La base qui alimente tous tes tailorings."
+        />
 
         {/* ── PROFILE HEADER ── */}
-        <Card className="border border-border/70 shadow-sm">
-          <CardContent className="p-5">
+        <Card variant="panel" className="p-6 md:p-8">
           {editingProfile ? (
-            <div className="space-y-3 animate-in fade-in-50">
-              <Input value={profileDraft.name} onChange={e => setProfileDraft({ ...profileDraft, name: e.target.value })}
-                placeholder="Prenom Nom" className="text-2xl font-bold border-0 p-0 h-auto focus-visible:ring-0 bg-transparent" />
-              <Input value={profileDraft.title} onChange={e => setProfileDraft({ ...profileDraft, title: e.target.value })}
-                placeholder="Senior Product Designer" className="text-base text-muted-foreground border-0 p-0 h-auto focus-visible:ring-0 bg-transparent" />
-              <Input value={profileDraft.summary} onChange={e => setProfileDraft({ ...profileDraft, summary: e.target.value })}
-                placeholder="Une phrase qui te resume (optionnel)" className="text-sm text-muted-foreground border-0 p-0 h-auto focus-visible:ring-0 bg-transparent" />
-              <Button size="sm" onClick={handleSaveProfile}>Valider</Button>
-            </div>
-          ) : (
-            <div className="group">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight">{profile.name || "Votre nom"}</h2>
-                  <p className="text-base text-muted-foreground mt-0.5">{profile.title || "Votre poste"}</p>
-                  {profile.summary && <p className="text-sm text-muted-foreground/70 mt-1">{profile.summary}</p>}
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                  onClick={() => setEditingProfile(true)}
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                  Modifier
-                </Button>
+            <div className="flex flex-col gap-3 animate-in fade-in-50">
+              <Input inputSize="sm" value={profileDraft.name} onChange={e => setProfileDraft({ ...profileDraft, name: e.target.value })}
+                placeholder="Prénom Nom" className="h-auto rounded-none border-0 bg-transparent p-0 text-2xl font-semibold tracking-[-0.025em] focus-visible:ring-0" />
+              <Input inputSize="sm" value={profileDraft.title} onChange={e => setProfileDraft({ ...profileDraft, title: e.target.value })}
+                placeholder="Senior Product Designer" className="h-auto rounded-none border-0 bg-transparent p-0 text-base text-muted-foreground focus-visible:ring-0" />
+              <Input inputSize="sm" value={profileDraft.summary} onChange={e => setProfileDraft({ ...profileDraft, summary: e.target.value })}
+                placeholder="Une phrase qui te résume (optionnel)" className="h-auto rounded-none border-0 bg-transparent p-0 text-sm text-muted-foreground focus-visible:ring-0" />
+              <div>
+                <Button size="sm" onClick={handleSaveProfile}>Valider</Button>
               </div>
             </div>
+          ) : (
+            <div className="group flex items-start justify-between gap-4">
+              <div className="flex flex-col gap-1">
+                <h2 className="text-2xl font-semibold tracking-[-0.025em] text-foreground">{profile.name || "Votre nom"}</h2>
+                <p className="text-base text-muted-foreground">{profile.title || "Votre poste"}</p>
+                {profile.summary && <p className="text-sm text-muted-foreground">{profile.summary}</p>}
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setEditingProfile(true)}>
+                <Pencil />
+                Modifier
+              </Button>
+            </div>
           )}
-          </CardContent>
         </Card>
 
-        {/* ── EXPERIENCES ── */}
-        <ExperiencesSection enrichmentContext={enrichmentContext} />
+        {/* Main column: experiences (the core of the library). Aside: skills, education, languages. */}
+        <div className="grid items-start gap-7 xl:grid-cols-[minmax(0,1fr)_420px]">
+          <ExperiencesSection enrichmentContext={enrichmentContext} />
 
-        {/* ── SKILLS ── */}
-        <SkillsSection />
-
-        {/* ── FORMATIONS + LANGUAGES — side by side ── */}
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          <FormationsSection />
-          <LanguagesSection />
+          <div className="flex flex-col gap-7 xl:sticky xl:top-6">
+            <SkillsSection />
+            <FormationsSection />
+            <LanguagesSection />
+          </div>
         </div>
 
       </div>
@@ -218,17 +248,17 @@ function ExperiencesSection({ enrichmentContext }: { enrichmentContext?: Enrichm
   };
 
   return (
-    <div className="space-y-6">
+    <Card variant="panel" className="flex flex-col gap-6 p-6 md:p-8">
       {/* Contextual banner when arriving from result page */}
       {enrichmentContext?.jobTitle && enrichmentContext?.missingKeywords?.length ? (
-        <div className="rounded-lg border border-amber-200/60 dark:border-amber-800/40 bg-amber-50/40 dark:bg-amber-950/20 p-4">
+        <div className="rounded-2xl border border-warning/30 bg-warning-soft/50 p-4">
           <div className="flex items-start gap-3">
-            <Target className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+            <Target className="mt-0.5 size-4 shrink-0 text-warning" />
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium text-warning-strong">
                 Enrichir pour : {enrichmentContext.jobTitle}
               </p>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-sm text-muted-foreground">
                 Ajoute des bullets sur : {enrichmentContext.missingKeywords.join(", ")}
               </p>
             </div>
@@ -236,35 +266,30 @@ function ExperiencesSection({ enrichmentContext }: { enrichmentContext?: Enrichm
         </div>
       ) : null}
 
-      <div className="flex justify-between items-end gap-4">
-        <div className="space-y-1">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Briefcase className="w-4 h-4 text-primary" /> Experiences
-          </h2>
-          <p className="text-sm text-muted-foreground">Structure tes experiences et bullets pour un tailoring plus fiable.</p>
-        </div>
-        <div className="flex gap-2">
-          <CVImportDialog open={importOpen} onOpenChange={setImportOpen} />
-          <ExperienceDialog open={editOpen} onOpenChange={setEditOpen} experience={editingExp} onClose={() => setEditingExp(null)} />
-        </div>
-      </div>
+      <SectionTitle
+        className="items-end"
+        title={<span className="flex items-center gap-2"><Briefcase className="size-5 text-primary" /> Expériences</span>}
+        description="Structure tes expériences et bullets pour un tailoring plus fiable."
+        aside={
+          <div className="flex flex-wrap gap-2">
+            <CVImportDialog open={importOpen} onOpenChange={setImportOpen} />
+            <ExperienceDialog open={editOpen} onOpenChange={setEditOpen} experience={editingExp} onClose={() => setEditingExp(null)} />
+          </div>
+        }
+      />
 
       {!experiences?.length ? (
-        <Card className="border-dashed border-2 bg-transparent shadow-none">
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="w-12 h-12 bg-primary/10 text-primary rounded-full flex items-center justify-center mb-4">
-              <Upload className="w-6 h-6" />
-            </div>
-            <h3 className="font-semibold text-lg">Importez votre CV</h3>
-            <p className="text-muted-foreground mt-1 mb-4 max-w-sm">Uploadez un PDF ou collez le texte de votre CV pour pre-remplir vos experiences.</p>
-            <div className="flex gap-2">
-              <Button onClick={() => setImportOpen(true)}><Upload className="w-4 h-4 mr-2" /> Importer un CV</Button>
-              <Button variant="outline" onClick={() => setEditOpen(true)}><Plus className="w-4 h-4 mr-2" /> Ajouter manuellement</Button>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border/70 px-6 py-12 text-center">
+          <Mascot variant="thinking" className="mb-4 size-24" />
+          <h3 className="text-xl font-semibold tracking-[-0.025em] text-foreground">Importez votre CV</h3>
+          <p className="mb-5 mt-1 max-w-sm text-base text-muted-foreground">Uploadez un PDF ou collez le texte de votre CV pour pré-remplir vos expériences.</p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button onClick={() => setImportOpen(true)}><Upload /> Importer un CV</Button>
+            <Button variant="outline" onClick={() => setEditOpen(true)}><Plus /> Ajouter manuellement</Button>
+          </div>
+        </div>
       ) : (
-        <Accordion type="multiple" className="space-y-3">
+        <Accordion type="multiple" className="flex flex-col gap-3">
           {sortedExperiences.map(exp => (
             <ExperienceAccordionItem
               key={exp.id}
@@ -288,7 +313,7 @@ function ExperiencesSection({ enrichmentContext }: { enrichmentContext?: Enrichm
           )}
         </SheetContent>
       </Sheet>
-    </div>
+    </Card>
   );
 }
 
@@ -313,50 +338,50 @@ function ExperienceAccordionItem({ experience, onEdit, onOpenPanel }: {
 
   return (
     <div className="group">
-    <AccordionItem value={experience.id} className="bg-card border border-border/70 rounded-xl shadow-sm overflow-hidden">
+    <AccordionItem value={experience.id} className="overflow-hidden rounded-2xl border border-border/60 bg-card/80">
       <div className="flex items-center pr-4">
-        <AccordionTrigger className="flex-1 hover:no-underline py-5 px-5 data-[state=open]:border-b data-[state=open]:border-border/50 [&>svg]:hidden">
-          <div className="flex items-start gap-3 w-full">
+        <AccordionTrigger className="flex-1 px-5 py-5 hover:no-underline data-[state=open]:border-b data-[state=open]:border-border/50 [&>svg]:hidden">
+          <div className="flex w-full items-start gap-3">
             {/* Chevron left */}
-            <div className="w-7 h-7 rounded-md bg-muted/50 flex items-center justify-center shrink-0 mt-0.5">
-              <ChevronDown className="w-4 h-4 text-muted-foreground transition-transform duration-200" />
+            <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-secondary">
+              <ChevronDown className="size-4 text-muted-foreground transition-transform duration-200" />
             </div>
-            <div className="flex flex-col items-start text-left gap-1 flex-1 min-w-0">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                <span className="flex items-center gap-1"><Building className="w-3 h-3" /> {experience.company}</span>
-                {(experience as any).contractType && <Badge variant="outline" className="text-[10px] px-1.5 py-0">{(experience as any).contractType}</Badge>}
+            <div className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1"><Building className="size-3" /> {experience.company}</span>
+                {(experience as any).contractType && <Badge variant="outline">{(experience as any).contractType}</Badge>}
                 <span className="opacity-40">|</span>
-                <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {experience.startDate ? format(new Date(experience.startDate), "MMM yyyy") : "N/A"} – {experience.endDate ? format(new Date(experience.endDate), "MMM yyyy") : "Present"}</span>
+                <span className="flex items-center gap-1"><Calendar className="size-3" /> {experience.startDate ? format(new Date(experience.startDate), "MMM yyyy") : "N/A"} – {experience.endDate ? format(new Date(experience.endDate), "MMM yyyy") : "Présent"}</span>
               </div>
-              <span className="font-bold text-base">{experience.title}</span>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-md" style={{ background: depth.bg, color: depth.color }}>{depth.label}</span>
+              <span className="text-base font-semibold text-foreground">{experience.title}</span>
+              <div className="mt-0.5 flex items-center gap-2">
+                <Badge variant={depth.variant} className="font-semibold">{depth.label}</Badge>
                 <div className="flex gap-1.5">
                   {[...Array(5)].map((_, i) => (
-                    <div key={i} className="w-2 h-2 rounded-full" style={{ background: i < depth.dots ? depth.color : "#e8e5de" }} />
+                    <div key={i} className={cn("size-2 rounded-full", i < depth.dots ? depth.dotClass : "bg-border")} />
                   ))}
                 </div>
               </div>
             </div>
           </div>
         </AccordionTrigger>
-        <div className="flex items-center gap-1 ml-auto pl-3 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={onEdit}>
-            <Pencil className="w-4 h-4" />
+        <div className="ml-auto flex items-center gap-1 pl-3 opacity-100 transition-opacity md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100">
+          <Button variant="ghost" size="icon-sm" onClick={onEdit} aria-label="Modifier l'expérience">
+            <Pencil />
           </Button>
-          <Button variant="outline" size="sm" className="h-8 text-xs gap-1" onClick={() => onOpenPanel()}>
-            <Sparkles className="w-3.5 h-3.5" /> {bulletCount >= 5 ? "Optimiser" : "Enrichir"}
+          <Button variant="outline" size="sm" onClick={() => onOpenPanel()}>
+            <Sparkles /> {bulletCount >= 5 ? "Optimiser" : "Enrichir"}
           </Button>
         </div>
       </div>
       <AccordionContent className="p-0">
-        <div className="p-5 space-y-3">
+        <div className="flex flex-col gap-3 p-5">
           {experience.description && (
-            <p className="text-sm text-foreground/70 whitespace-pre-line mb-4">{experience.description}</p>
+            <p className="mb-1 whitespace-pre-line text-sm text-muted-foreground">{experience.description}</p>
           )}
 
           {(!bullets || bullets.length === 0) && (
-            <p className="text-sm text-muted-foreground text-center py-4">Aucun bullet. Clique sur Enrichir pour commencer.</p>
+            <p className="py-4 text-center text-sm text-muted-foreground">Aucun bullet. Clique sur Enrichir pour commencer.</p>
           )}
 
           {bullets?.map(bullet => {
@@ -365,23 +390,26 @@ function ExperienceAccordionItem({ experience, onEdit, onOpenPanel }: {
               <div
                 key={bullet.id}
                 onClick={() => onOpenPanel(bullet.id)}
-                className={`rounded-lg p-4 border transition-colors cursor-pointer hover:border-primary/30 ${warnings.length > 0 ? "border-amber-200 dark:border-amber-800/30 bg-amber-50/20 dark:bg-amber-950/10" : "border-border/40 bg-background/70"}`}
+                className={cn(
+                  "cursor-pointer rounded-md border p-4 transition-colors hover:border-primary/30",
+                  warnings.length > 0 ? "border-warning/30 bg-warning-soft/30" : "border-border/60 bg-card",
+                )}
               >
                 {/* Tags */}
                 {bullet.tags && bullet.tags.length > 0 && (
-                  <div className="flex gap-1.5 mb-2 flex-wrap">
+                  <div className="mb-2 flex flex-wrap gap-1.5">
                     {bullet.tags.map((tag: string, i: number) => (
-                      <span key={i} className="text-[13px] px-3 py-0.5 bg-secondary text-secondary-foreground rounded-md">{tag}</span>
+                      <Badge key={i} variant="tag">{tag}</Badge>
                     ))}
                   </div>
                 )}
                 {/* Text */}
-                <p className="text-sm text-foreground/90 leading-relaxed">{bullet.text}</p>
+                <p className="text-sm leading-relaxed text-foreground">{bullet.text}</p>
                 {/* Warnings — separated from tags */}
                 {warnings.length > 0 && (
-                  <div className="flex gap-1.5 flex-wrap mt-2 pt-2 border-t border-border/20">
+                  <div className="mt-2 flex flex-wrap gap-1.5 border-t border-border/40 pt-2">
                     {warnings.map((w, i) => (
-                      <span key={i} className="text-xs px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">○ {w}</span>
+                      <Badge key={i} variant="warning">○ {w}</Badge>
                     ))}
                   </div>
                 )}
@@ -580,54 +608,58 @@ function EnrichmentPanel({ experience, initialBulletId, missingKeywords, jobTitl
 
   const charCount = editText.trim().length;
   const charValid = charCount >= MIN_CHARS && charCount <= MAX_CHARS;
-  const charColor = charCount === 0 ? "text-muted-foreground" : charValid ? "text-green-600" : "text-amber-600";
+  const charColor = charCount === 0 ? "text-muted-foreground" : charValid ? "text-success-strong" : "text-warning-strong";
 
   const CRITERIA = [
-    { key: "clarte", label: "Clarte" },
+    { key: "clarte", label: "Clarté" },
     { key: "contexte", label: "Contexte" },
     { key: "scope", label: "Scope" },
     { key: "impact", label: "Impact" },
-    { key: "completude", label: "Completude" },
+    { key: "completude", label: "Complétude" },
   ];
 
+  const optionCardClass =
+    "h-auto w-full justify-start whitespace-normal rounded-2xl border border-border/60 bg-card/80 p-4 text-left text-sm font-normal leading-relaxed text-foreground hover:border-primary/40 hover:bg-primary-soft/30 hover:text-foreground";
+  const freeWriteClass =
+    "w-full rounded-md border border-dashed border-border hover:border-primary/50 hover:bg-transparent hover:text-primary";
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full flex-col">
       {/* Header */}
-      <SheetHeader className="p-6 pb-5 border-b border-border/50 bg-background/80 space-y-1.5">
+      <SheetHeader className="flex flex-col gap-1.5 space-y-0 border-b border-border/60 bg-card/80 p-6 pb-5">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Building className="w-3.5 h-3.5" /> {experience.company}
+          <Building className="size-3.5" /> {experience.company}
           {experience.startDate && (
             <>
               <span className="opacity-40">|</span>
-              <Calendar className="w-3.5 h-3.5" />
-              {format(new Date(experience.startDate), "MMM yyyy")} – {experience.endDate ? format(new Date(experience.endDate), "MMM yyyy") : "Present"}
+              <Calendar className="size-3.5" />
+              {format(new Date(experience.startDate), "MMM yyyy")} – {experience.endDate ? format(new Date(experience.endDate), "MMM yyyy") : "Présent"}
             </>
           )}
         </div>
-        <SheetTitle className="text-lg font-semibold tracking-tight">{experience.title}</SheetTitle>
-        <Badge variant="outline" className="text-xs w-fit">{bulletCount}/{MAX_BULLETS} bullets</Badge>
+        <SheetTitle className="text-xl font-semibold tracking-[-0.025em] text-foreground">{experience.title}</SheetTitle>
+        <Badge variant="outline" className="w-fit">{bulletCount}/{MAX_BULLETS} bullets</Badge>
       </SheetHeader>
 
       {/* ── LOADING ── */}
       {step === "loading" && (
-        <div className="flex-1 flex items-center justify-center">
-          <RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" />
+        <div className="flex flex-1 items-center justify-center">
+          <RefreshCw className="size-5 animate-spin text-muted-foreground" />
         </div>
       )}
 
       {/* ── AXES ── */}
       {step === "axes" && (
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
-          <div>
-            <p className="text-sm font-medium">Axes detectes dans ta description</p>
-            <p className="text-xs text-muted-foreground mt-1">Clique sur un axe pour l'utiliser comme base.</p>
+        <div className="flex flex-1 flex-col gap-5 overflow-y-auto p-6">
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-medium text-foreground">Axes détectés dans ta description</p>
+            <p className="text-sm text-muted-foreground">Clique sur un axe pour l'utiliser comme base.</p>
           </div>
-          <div className="space-y-2.5">
+          <div className="flex flex-col gap-2.5">
             {axes.map((axis, i) => (
-              <button key={i} onClick={() => openEdit(null, axis, [])} disabled={remaining <= 0}
-                className="w-full text-left text-sm p-4 rounded-lg border border-border bg-background hover:border-primary/50 hover:bg-primary/5 transition-all disabled:opacity-50 leading-relaxed">
+              <Button key={i} variant="ghost" onClick={() => openEdit(null, axis, [])} disabled={remaining <= 0} className={optionCardClass}>
                 {axis}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -635,38 +667,37 @@ function EnrichmentPanel({ experience, initialBulletId, missingKeywords, jobTitl
 
       {/* ── GAPS (detect-gaps questions) ── */}
       {step === "gaps" && (
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
-          <div>
+        <div className="flex flex-1 flex-col gap-5 overflow-y-auto p-6">
+          <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
-              <HelpCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-              <p className="text-sm font-medium">Quoi renforcer ?</p>
+              <HelpCircle className="size-4 text-warning" />
+              <p className="text-sm font-medium text-foreground">Quoi renforcer ?</p>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-sm text-muted-foreground">
               {missingKeywords?.length
                 ? `Pour "${jobTitle || "ce poste"}" : ces aspects manquent dans tes bullets.`
-                : "Reponds a une question pour ajouter un bullet plus concret."}
+                : "Réponds à une question pour ajouter un bullet plus concret."}
             </p>
           </div>
 
           {/* Missing keywords banner from job context (Phase 3) */}
           {missingKeywords && missingKeywords.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 p-3 rounded-lg border border-amber-200/60 dark:border-amber-800/40 bg-amber-50/30 dark:bg-amber-950/10">
-              <span className="text-[11px] text-muted-foreground mr-1">Manquant :</span>
+            <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-warning/30 bg-warning-soft/40 p-3">
+              <span className="mr-1 text-2xs text-muted-foreground">Manquant :</span>
               {missingKeywords.map((kw, i) => (
-                <span key={i} className="text-[11px] px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 font-medium">{kw}</span>
+                <Badge key={i} variant="warning">{kw}</Badge>
               ))}
             </div>
           )}
 
-          <div className="space-y-2.5">
+          <div className="flex flex-col gap-2.5">
             {gaps.map((gap) => (
-              <button key={gap.id} onClick={() => openEdit(null, "", [], gap.question)} disabled={remaining <= 0}
-                className="w-full text-left p-4 rounded-lg border border-border bg-background hover:border-primary/50 hover:bg-primary/5 transition-all disabled:opacity-50">
+              <Button key={gap.id} variant="ghost" onClick={() => openEdit(null, "", [], gap.question)} disabled={remaining <= 0} className={optionCardClass}>
                 <div className="flex items-start gap-3">
-                  <span className="text-xs px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-medium capitalize shrink-0 mt-0.5">{gap.dimension}</span>
+                  <Badge variant="secondary" className="mt-0.5 shrink-0 capitalize">{gap.dimension}</Badge>
                   <p className="text-sm leading-relaxed">{gap.question}</p>
                 </div>
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -674,86 +705,90 @@ function EnrichmentPanel({ experience, initialBulletId, missingKeywords, jobTitl
 
       {/* ── LIST ── */}
       {step === "list" && (
-        <div className="flex-1 overflow-y-auto p-6 space-y-3.5">
+        <div className="flex flex-1 flex-col gap-3.5 overflow-y-auto p-6">
           {bullets?.map((b: any) => {
             const warnings = quickCheck(b.text, b.tags || []);
             return (
               <div key={b.id} onClick={() => openEdit(b.id, b.text, b.tags || [])}
-                className={`p-4 rounded-lg border transition-colors cursor-pointer hover:border-primary/30 ${warnings.length > 0 ? "border-amber-200 dark:border-amber-800/30 bg-amber-50/20 dark:bg-amber-950/10" : "border-green-200 dark:border-green-800/30 bg-green-50/20 dark:bg-green-950/10"}`}>
+                className={cn(
+                  "cursor-pointer rounded-md border p-4 transition-colors hover:border-primary/30",
+                  warnings.length > 0 ? "border-warning/30 bg-warning-soft/30" : "border-success/30 bg-success-soft/30",
+                )}>
                 {/* Tags */}
                 {b.tags?.length > 0 && (
-                  <div className="flex gap-1.5 flex-wrap mb-2">
+                  <div className="mb-2 flex flex-wrap gap-1.5">
                     {b.tags.map((tag: string, i: number) => (
-                      <span key={i} className="text-[13px] px-3 py-0.5 bg-secondary text-secondary-foreground rounded-md">{tag}</span>
+                      <Badge key={i} variant="tag">{tag}</Badge>
                     ))}
                   </div>
                 )}
                 {/* Text */}
-                <p className="text-sm leading-relaxed">{b.text}</p>
+                <p className="text-sm leading-relaxed text-foreground">{b.text}</p>
                 {/* Warnings */}
                 {warnings.length > 0 && (
-                  <div className="flex gap-1.5 flex-wrap mt-2.5 pt-2 border-t border-border/20">
+                  <div className="mt-2.5 flex flex-wrap gap-1.5 border-t border-border/40 pt-2">
                     {warnings.map((w, i) => (
-                      <span key={i} className="text-xs px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">○ {w}</span>
+                      <Badge key={i} variant="warning">○ {w}</Badge>
                     ))}
                   </div>
                 )}
                 {warnings.length === 0 && (
-                  <div className="mt-2.5 pt-2 border-t border-border/20">
-                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400">✓ Pret pour le tailoring</span>
+                  <div className="mt-2.5 border-t border-border/40 pt-2">
+                    <Badge variant="success">✓ Prêt pour le tailoring</Badge>
                   </div>
                 )}
               </div>
             );
           })}
           {!bullets?.length && (
-            <p className="text-sm text-muted-foreground text-center py-8">Aucun bullet.</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">Aucun bullet.</p>
           )}
         </div>
       )}
 
       {/* ── EDIT ── */}
       {step === "edit" && (
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6">
           {/* Prompt from detect-gaps question */}
           {editPrompt && (
-            <div className="flex items-start gap-3 p-3 rounded-lg border border-blue-200/60 dark:border-blue-800/40 bg-blue-50/30 dark:bg-blue-950/15">
-              <HelpCircle className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-blue-800 dark:text-blue-300 leading-relaxed">{editPrompt}</p>
+            <div className="flex items-start gap-3 rounded-md border border-primary/20 bg-primary-soft/40 p-3">
+              <HelpCircle className="mt-0.5 size-4 shrink-0 text-primary" />
+              <p className="text-sm leading-relaxed text-primary-strong">{editPrompt}</p>
             </div>
           )}
 
           {/* Textarea */}
           <div>
-            <div className="flex justify-between items-center mb-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Ton bullet</p>
-              <span className={`text-xs font-medium ${charColor}`}>{charCount}/{MAX_CHARS}</span>
+            <div className="mb-3 flex items-center justify-between">
+              <Eyebrow size="sm">Ton bullet</Eyebrow>
+              <span className={cn("text-xs font-medium", charColor)}>{charCount}/{MAX_CHARS}</span>
             </div>
             <Textarea
               ref={textRef}
               value={editText}
               onChange={e => { const val = e.target.value.slice(0, MAX_CHARS); setEditText(val); setEditEval(null); }}
               onPaste={e => { e.preventDefault(); const pasted = e.clipboardData.getData("text").slice(0, MAX_CHARS); setEditText(pasted); setEditEval(null); }}
-              placeholder="Ex: Conception et deploiement d'un design system pour 3 equipes produit, reduisant le temps de maquettage de 30%"
-              className="min-h-[100px] text-sm resize-none"
+              placeholder="Ex: Conception et déploiement d'un design system pour 3 équipes produit, réduisant le temps de maquettage de 30%"
+              className="min-h-[100px] resize-none text-sm"
               maxLength={MAX_CHARS}
             />
             {charCount > 0 && charCount < MIN_CHARS && (
-              <p className="text-xs text-amber-600 mt-2">Minimum {MIN_CHARS} caracteres ({MIN_CHARS - charCount} restants)</p>
+              <p className="mt-2 text-xs text-warning-strong">Minimum {MIN_CHARS} caractères ({MIN_CHARS - charCount} restants)</p>
             )}
           </div>
 
           {/* Tags */}
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Tags</p>
-            <div className="flex gap-2 flex-wrap items-center">
+            <Eyebrow size="sm" className="mb-3">Tags</Eyebrow>
+            <div className="flex flex-wrap items-center gap-2">
               {editTags.map((tag, i) => (
-                <span key={i} className="inline-flex items-center gap-1.5 text-[13px] px-3 py-1 bg-secondary text-secondary-foreground rounded-md">
+                <Badge key={i} variant="tag" className="gap-1 pr-1.5">
                   {tag}
-                  <button onClick={() => setEditTags(prev => prev.filter((_, j) => j !== i))} className="hover:text-destructive text-muted-foreground">×</button>
-                </span>
+                  <ChipRemoveButton aria-label={`Retirer le tag ${tag}`} onClick={() => setEditTags(prev => prev.filter((_, j) => j !== i))} />
+                </Badge>
               ))}
-              <input
+              <Input
+                inputSize="sm"
                 list="all-tags-list"
                 type="text"
                 value={newTagText}
@@ -766,7 +801,7 @@ function EnrichmentPanel({ experience, initialBulletId, missingKeywords, jobTitl
                   }
                 }}
                 placeholder="+ ajouter un tag"
-                className="text-[13px] min-w-[120px] flex-1 bg-transparent border-b border-dashed border-muted-foreground/30 outline-none px-2 py-1"
+                className="w-auto min-w-[120px] flex-1"
               />
               <datalist id="all-tags-list">
                 {allTags.filter(t => !editTags.includes(t)).map(tag => (
@@ -779,18 +814,16 @@ function EnrichmentPanel({ experience, initialBulletId, missingKeywords, jobTitl
           {/* Evaluation */}
           {editEval && (
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Evaluation</p>
-              <div className="flex gap-2 flex-wrap mb-3">
+              <Eyebrow size="sm" className="mb-3">Évaluation</Eyebrow>
+              <div className="mb-3 flex flex-wrap gap-2">
                 {CRITERIA.map(({ key, label }) => (
-                  <span key={key} className={`text-[13px] px-3.5 py-1 rounded-full font-medium ${
-                    editEval[key] ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400" : "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
-                  }`}>
+                  <Badge key={key} variant={editEval[key] ? "success" : "warning"}>
                     {editEval[key] ? "✓" : "○"} {label}
-                  </span>
+                  </Badge>
                 ))}
               </div>
               {CRITERIA.filter(c => editEval[c.key] === false && editReasons?.[c.key]).map(c => (
-                <div key={c.key} className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/10 p-3 rounded-lg mb-2">
+                <div key={c.key} className="mb-2 rounded-md bg-warning-soft/60 p-3 text-xs text-warning-strong">
                   <span className="font-medium">{c.label} :</span> {editReasons?.[c.key]}
                 </div>
               ))}
@@ -798,7 +831,7 @@ function EnrichmentPanel({ experience, initialBulletId, missingKeywords, jobTitl
           )}
 
           {editSuggestion && (
-            <div className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/10 p-3 rounded-lg">
+            <div className="rounded-md bg-warning-soft/60 p-3 text-xs text-warning-strong">
               <span className="font-medium">Suggestion :</span> {editSuggestion}
             </div>
           )}
@@ -806,17 +839,16 @@ function EnrichmentPanel({ experience, initialBulletId, missingKeywords, jobTitl
       )}
 
       {/* ── BOTTOM BAR ── */}
-      <div className="border-t border-border/50 bg-muted/20 p-5 space-y-2.5 shrink-0">
+      <div className="flex shrink-0 flex-col gap-2.5 border-t border-border/60 bg-surface p-5">
 
         {step === "axes" && (
           <>
-            <button onClick={() => openEdit(null, "", [])}
-              className="w-full text-sm p-3 rounded-lg border border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-primary transition-all text-center">
-              + Ecrire un bullet librement
-            </button>
+            <Button variant="ghost" onClick={() => openEdit(null, "", [])} className={freeWriteClass}>
+              + Écrire un bullet librement
+            </Button>
             {bulletCount > 0 && (
-              <Button variant="outline" onClick={fetchGaps} className="w-full h-10">
-                <HelpCircle className="w-4 h-4 mr-2" /> Quoi renforcer ?
+              <Button variant="outline" onClick={fetchGaps} className="w-full">
+                <HelpCircle /> Quoi renforcer ?
               </Button>
             )}
           </>
@@ -824,61 +856,60 @@ function EnrichmentPanel({ experience, initialBulletId, missingKeywords, jobTitl
 
         {step === "gaps" && (
           <>
-            <button onClick={() => openEdit(null, "", [])}
-              className="w-full text-sm p-3 rounded-lg border border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-primary transition-all text-center">
-              + Ecrire un bullet librement
-            </button>
-            <Button variant="outline" onClick={() => setStep(bulletCount > 0 ? "list" : axes.length > 0 ? "axes" : "edit")} className="w-full h-10">
+            <Button variant="ghost" onClick={() => openEdit(null, "", [])} className={freeWriteClass}>
+              + Écrire un bullet librement
+            </Button>
+            <Button variant="outline" onClick={() => setStep(bulletCount > 0 ? "list" : axes.length > 0 ? "axes" : "edit")} className="w-full">
               Retour
             </Button>
           </>
         )}
 
         {step === "list" && remaining > 0 && (
-          <Button onClick={() => openEdit(null, "", [])} className="w-full h-10">
-            <Plus className="w-4 h-4 mr-2" /> Ajouter un bullet ({remaining} restant{remaining > 1 ? "s" : ""})
+          <Button onClick={() => openEdit(null, "", [])} className="w-full">
+            <Plus /> Ajouter un bullet ({remaining} restant{remaining > 1 ? "s" : ""})
           </Button>
         )}
         {step === "list" && bulletCount > 0 && (
-          <Button variant="outline" onClick={fetchGaps} className="w-full h-10">
-            <HelpCircle className="w-4 h-4 mr-2" /> Quoi renforcer ?
+          <Button variant="outline" onClick={fetchGaps} className="w-full">
+            <HelpCircle /> Quoi renforcer ?
           </Button>
         )}
         {step === "list" && remaining > 0 && axes.length > bulletCount && (
-          <Button variant="outline" onClick={() => setStep("axes")} className="w-full h-10">
-            <Sparkles className="w-4 h-4 mr-2" /> Voir les axes suggeres
+          <Button variant="outline" onClick={() => setStep("axes")} className="w-full">
+            <Sparkles /> Voir les axes suggérés
           </Button>
         )}
 
         {step === "edit" && (
-          <div className="space-y-2.5">
+          <div className="flex flex-col gap-2.5">
             {!editEval && !processing && (
-              <Button onClick={handleEvaluate} disabled={charCount < MIN_CHARS} variant="outline" className="w-full h-10">
-                <Sparkles className="w-4 h-4 mr-2" /> Tagger + Evaluer
+              <Button onClick={handleEvaluate} disabled={charCount < MIN_CHARS} variant="outline" className="w-full">
+                <Sparkles /> Tagger + Évaluer
               </Button>
             )}
             {processing && (
-              <div className="flex items-center justify-center py-2 gap-2 text-sm text-muted-foreground">
-                <RefreshCw className="w-4 h-4 animate-spin" /> Analyse...
+              <div className="flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground">
+                <RefreshCw className="size-4 animate-spin" /> Analyse...
               </div>
             )}
-            <Button onClick={handleSave} disabled={!charValid || createBullet.isPending} className="w-full h-10">
-              <Check className="w-4 h-4 mr-2" /> {editId ? "Enregistrer" : "Ajouter"}
+            <Button onClick={handleSave} disabled={!charValid || createBullet.isPending} className="w-full">
+              <Check /> {editId ? "Enregistrer" : "Ajouter"}
             </Button>
             <div className="flex gap-2">
               {editEval && !processing && (
-                <Button variant="outline" onClick={handleEvaluate} className="h-10 px-3" title="Re-evaluer">
-                  <RefreshCw className="w-4 h-4" />
+                <Button variant="outline" size="icon" onClick={handleEvaluate} title="Ré-évaluer" aria-label="Ré-évaluer">
+                  <RefreshCw />
                 </Button>
               )}
-              <Button variant="outline" onClick={() => setStep(bulletCount > 0 ? "list" : gaps.length > 0 ? "gaps" : axes.length > 0 ? "axes" : "list")} className="flex-1 h-10">
+              <Button variant="outline" onClick={() => setStep(bulletCount > 0 ? "list" : gaps.length > 0 ? "gaps" : axes.length > 0 ? "axes" : "list")} className="flex-1">
                 Retour
               </Button>
             </div>
             {editId && (
-              <button onClick={handleDelete} className="w-full text-xs text-destructive hover:underline text-center py-1.5">
+              <Button variant="link" onClick={handleDelete} className="w-full py-1.5 text-xs text-destructive">
                 Supprimer ce bullet
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -948,41 +979,38 @@ function ExperienceDialog({ open, onOpenChange, experience, onClose }: any) {
   return (
     <Dialog open={open} onOpenChange={(val) => { onOpenChange(val); if (!val) onClose(); }}>
       <DialogTrigger asChild>
-        {!experience && <Button variant="outline"><Plus className="w-4 h-4 mr-2" /> Ajouter une experience</Button>}
+        {!experience && <Button variant="outline"><Plus /> Ajouter une expérience</Button>}
       </DialogTrigger>
       <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader><DialogTitle>{experience ? "Modifier" : "Ajouter une experience"}</DialogTitle></DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 py-4">
+        <DialogHeader><DialogTitle>{experience ? "Modifier" : "Ajouter une expérience"}</DialogTitle></DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4 py-4">
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2"><Label>Titre</Label><Input required value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="Product Designer" /></div>
-            <div className="space-y-2"><Label>Entreprise</Label><Input required value={formData.company} onChange={e => setFormData({ ...formData, company: e.target.value })} placeholder="Accor" /></div>
-            <div className="space-y-2"><Label>Date debut</Label><Input type="date" value={formData.startDate} onChange={e => setFormData({ ...formData, startDate: e.target.value })} /></div>
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2"><Label>Titre</Label><Input inputSize="sm" required value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="Product Designer" /></div>
+            <div className="flex flex-col gap-2"><Label>Entreprise</Label><Input inputSize="sm" required value={formData.company} onChange={e => setFormData({ ...formData, company: e.target.value })} placeholder="Accor" /></div>
+            <div className="flex flex-col gap-2"><Label>Date début</Label><Input inputSize="sm" type="date" value={formData.startDate} onChange={e => setFormData({ ...formData, startDate: e.target.value })} /></div>
+            <div className="flex flex-col gap-2">
               <Label>Date fin</Label>
-              <Input type="date" value={isCurrent ? "" : formData.endDate} onChange={e => setFormData({ ...formData, endDate: e.target.value })} disabled={isCurrent} className={isCurrent ? "opacity-40" : ""} />
-              <label className="flex items-center gap-2 cursor-pointer mt-1" onClick={() => setIsCurrent(!isCurrent)}>
-                <div className={`w-8 h-[18px] rounded-full p-0.5 transition-colors ${isCurrent ? "bg-primary" : "bg-border"}`}>
-                  <div className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${isCurrent ? "translate-x-3.5" : "translate-x-0"}`} />
-                </div>
+              <Input inputSize="sm" type="date" value={isCurrent ? "" : formData.endDate} onChange={e => setFormData({ ...formData, endDate: e.target.value })} disabled={isCurrent} className={isCurrent ? "opacity-40" : ""} />
+              <label className="mt-1 flex cursor-pointer items-center gap-2">
+                <Switch checked={isCurrent} onCheckedChange={setIsCurrent} />
                 <span className="text-xs text-muted-foreground">Poste actuel</span>
               </label>
             </div>
           </div>
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <Label>Type de contrat</Label>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {["CDI", "Freelance", "CDD", "Stage", "Alternance"].map(ct => (
-                <button key={ct} type="button" onClick={() => setFormData({ ...formData, contractType: formData.contractType === ct ? "" : ct })}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${formData.contractType === ct ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border hover:border-primary/50"}`}>
+                <ChoiceChip key={ct} selected={formData.contractType === ct} onClick={() => setFormData({ ...formData, contractType: formData.contractType === ct ? "" : ct })}>
                   {ct}
-                </button>
+                </ChoiceChip>
               ))}
             </div>
           </div>
-          <div className="space-y-2"><Label>Description</Label><Textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} placeholder="Description du role..." className="h-24" /></div>
-          <DialogFooter className="pt-4 flex justify-between sm:justify-between">
+          <div className="flex flex-col gap-2"><Label>Description</Label><Textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} placeholder="Description du rôle..." className="h-24" /></div>
+          <DialogFooter className="flex justify-between pt-4 sm:justify-between">
             {experience ? <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleteExp.isPending}>Supprimer</Button> : <div />}
-            <Button type="submit" disabled={createExp.isPending || updateExp.isPending}>{experience ? "Enregistrer" : "Creer"}</Button>
+            <Button type="submit" disabled={createExp.isPending || updateExp.isPending}>{experience ? "Enregistrer" : "Créer"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -1086,106 +1114,109 @@ function SkillsSection() {
   if (isLoading) return <div className="h-40 flex items-center justify-center text-muted-foreground"><RefreshCw className="w-6 h-6 animate-spin" /></div>;
 
   return (
-    <div>
-      <div className="flex justify-between items-end mb-4 gap-4">
-        <div className="space-y-1">
-          <h2 className="text-lg font-semibold flex items-center gap-2"><Zap className="w-4 h-4 text-primary" /> Competences</h2>
-          <p className="text-sm text-muted-foreground">Garde uniquement les competences utiles pour tes candidatures cibles.</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleExtract} disabled={extracting || atLimit} className="gap-2 h-8 text-xs">
-            {extracting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-            {atLimit ? "Limite atteinte" : extracting ? "Analyse..." : "Extraire auto"}
-          </Button>
-          <Dialog open={addOpen} onOpenChange={setAddOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" className="h-8 text-xs" disabled={atLimit}><Plus className="w-3.5 h-3.5 mr-1" /> Ajouter</Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[400px]">
-              <DialogHeader><DialogTitle>Ajouter une competence</DialogTitle></DialogHeader>
-              <form onSubmit={handleAddManual} className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label>Nom</Label>
-                  <Input required value={addName} onChange={e => setAddName(e.target.value)} placeholder="Figma, User Testing..." />
-                </div>
-                <div className="space-y-2">
-                  <Label>Categorie</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {CATEGORIES.map(cat => (
-                      <button key={cat} type="button" onClick={() => setAddCategory(cat)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${addCategory === cat ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border hover:border-primary/50"}`}>
-                        {cat}
-                      </button>
-                    ))}
+    <Card variant="panel" className="flex flex-col gap-6 p-6 md:p-8">
+      <SectionTitle
+        className="items-end"
+        title={<span className="flex items-center gap-2"><Zap className="size-5 text-primary" /> Compétences</span>}
+        description="Garde uniquement les compétences utiles pour tes candidatures cibles."
+        aside={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={handleExtract} disabled={extracting || atLimit}>
+              {extracting ? <RefreshCw className="animate-spin" /> : <Sparkles />}
+              {atLimit ? "Limite atteinte" : extracting ? "Analyse..." : "Extraire auto"}
+            </Button>
+            <Dialog open={addOpen} onOpenChange={setAddOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" disabled={atLimit}><Plus /> Ajouter</Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[400px]">
+                <DialogHeader><DialogTitle>Ajouter une compétence</DialogTitle></DialogHeader>
+                <form onSubmit={handleAddManual} className="flex flex-col gap-4 py-4">
+                  <div className="flex flex-col gap-2">
+                    <Label>Nom</Label>
+                    <Input inputSize="sm" required value={addName} onChange={e => setAddName(e.target.value)} placeholder="Figma, User Testing..." />
                   </div>
-                </div>
-                <DialogFooter>
-                  <Button type="submit" disabled={createSkill.isPending}>Enregistrer</Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
+                  <div className="flex flex-col gap-2">
+                    <Label>Catégorie</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {CATEGORIES.map(cat => (
+                        <ChoiceChip key={cat} selected={addCategory === cat} onClick={() => setAddCategory(cat)}>
+                          {cat}
+                        </ChoiceChip>
+                      ))}
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button type="submit" disabled={createSkill.isPending}>Enregistrer</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+        }
+      />
 
       {/* Skills grouped by category — 2 columns */}
-      <div className="bg-card border border-border/70 rounded-xl p-5 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
-        {Object.keys(grouped).length === 0 ? (
-          <div className="text-center py-6 text-muted-foreground md:col-span-2">
-            <p className="text-sm">Aucune competence.</p>
-            <p className="text-xs mt-1">Cliquez "Extraire auto" pour detecter vos competences.</p>
-          </div>
-        ) : (
-          Object.entries(grouped).map(([category, catSkills]) => (
+      {Object.keys(grouped).length === 0 ? (
+        <div className="flex flex-col items-center py-6 text-center text-muted-foreground">
+          <Mascot variant="thinking" className="mb-4 size-24" />
+          <p className="text-sm">Aucune compétence.</p>
+          <p className="mt-1 text-sm">Cliquez "Extraire auto" pour détecter vos compétences.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-x-8 gap-y-5 md:grid-cols-2">
+          {Object.entries(grouped).map(([category, catSkills]) => (
             <div key={category}>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">{category}</p>
+              <Eyebrow size="sm" className="mb-2">{category}</Eyebrow>
               <div className="flex flex-wrap gap-2">
                 {catSkills!.map(skill => (
-                  <div key={skill.id} className="group flex items-center gap-1.5 px-3 py-1.5 bg-secondary text-secondary-foreground rounded-full border border-border/50 hover:border-destructive/30 transition-all">
-                    <span className="font-medium text-sm">{skill.name}</span>
-                    <button onClick={() => handleDelete(skill.id)} className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
+                  <Badge key={skill.id} variant="tag" className="group gap-1 pr-1.5 text-sm">
+                    {skill.name}
+                    <ChipRemoveButton
+                      aria-label={`Supprimer ${skill.name}`}
+                      onClick={() => handleDelete(skill.id)}
+                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                    />
+                  </Badge>
                 ))}
               </div>
             </div>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Review Dialog for extracted skills */}
       <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
-        <DialogContent className="sm:max-w-[550px] max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-[550px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-primary" />
-              Competences detectees
+              <Sparkles className="size-5 text-primary" />
+              Compétences détectées
             </DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">Decochez pour exclure. Les competences decochees ne seront <strong>plus jamais reproposees</strong>.</p>
-          <div className="space-y-4 py-4">
+          <p className="text-sm text-muted-foreground">Décochez pour exclure. Les compétences décochées ne seront <strong>plus jamais reproposées</strong>.</p>
+          <div className="flex flex-col gap-4 py-4">
             {CATEGORIES.map(cat => {
               const catItems = proposed.filter(s => s.category === cat);
               if (!catItems.length) return null;
               return (
                 <div key={cat}>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">{cat}</p>
+                  <Eyebrow size="sm" className="mb-2">{cat}</Eyebrow>
                   <div className="flex flex-wrap gap-2">
                     {catItems.map((skill, idx) => {
                       const globalIdx = proposed.findIndex(s => s.name === skill.name);
                       return (
-                        <button key={idx} onClick={() => {
-                          setProposed(prev => prev.map((s, i) => i === globalIdx ? { ...s, accepted: !s.accepted } : s));
-                        }}
-                          className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${
-                            skill.accepted
-                              ? "bg-primary/10 text-primary border-primary/30"
-                              : "bg-muted text-muted-foreground border-border line-through opacity-50"
-                          }`}>
-                          {skill.accepted ? <Check className="w-3 h-3 inline mr-1" /> : <X className="w-3 h-3 inline mr-1" />}
+                        <ChoiceChip
+                          key={idx}
+                          selected={skill.accepted}
+                          onClick={() => {
+                            setProposed(prev => prev.map((s, i) => i === globalIdx ? { ...s, accepted: !s.accepted } : s));
+                          }}
+                          className={cn(!skill.accepted && "text-muted-foreground line-through opacity-50")}
+                        >
+                          {skill.accepted ? <Check /> : <X />}
                           {skill.name}
-                        </button>
+                        </ChoiceChip>
                       );
                     })}
                   </div>
@@ -1196,13 +1227,13 @@ function SkillsSection() {
           <DialogFooter className="flex gap-2">
             <Button variant="outline" onClick={() => setReviewOpen(false)}>Annuler</Button>
             <Button onClick={handleSaveProposed} disabled={createSkill.isPending || proposed.filter(s => s.accepted).length === 0}>
-              {createSkill.isPending ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : null}
-              Ajouter {proposed.filter(s => s.accepted).length} competence{proposed.filter(s => s.accepted).length > 1 ? "s" : ""}
+              {createSkill.isPending ? <RefreshCw className="animate-spin" /> : null}
+              Ajouter {proposed.filter(s => s.accepted).length} compétence{proposed.filter(s => s.accepted).length > 1 ? "s" : ""}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </Card>
   );
 }
 
@@ -1278,53 +1309,62 @@ function CVImportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
 
   return (
     <Dialog open={open} onOpenChange={(val) => { onOpenChange(val); if (!val) reset(); }}>
-      <DialogTrigger asChild><Button className="gap-2"><Upload className="w-4 h-4" /> Importer un CV</Button></DialogTrigger>
-      <DialogContent className="sm:max-w-[650px] max-h-[85vh] overflow-y-auto">
-        <DialogHeader><DialogTitle className="flex items-center gap-2"><Sparkles className="w-5 h-5 text-primary" /> Importer votre CV</DialogTitle></DialogHeader>
+      <DialogTrigger asChild><Button><Upload /> Importer un CV</Button></DialogTrigger>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[650px]">
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><Sparkles className="size-5 text-primary" /> Importer votre CV</DialogTitle></DialogHeader>
 
         {step === "input" && (
-          <div className="space-y-4 py-4">
+          <div className="flex flex-col gap-4 py-4">
             <div
               onDragOver={e => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); }}
               onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+              className={cn(
+                "cursor-pointer rounded-2xl border-2 border-dashed p-8 text-center transition-colors",
+                dragOver ? "border-primary bg-primary-soft/40" : "border-border hover:border-primary/50",
+              )}
             >
               <input ref={fileInputRef} type="file" accept=".pdf" className="hidden" onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }} />
-              <Upload className="w-8 h-8 mx-auto mb-3 text-muted-foreground" />
-              <p className="font-medium text-sm">Deposez votre CV ici ou cliquez</p>
-              <p className="text-xs text-muted-foreground mt-1">PDF uniquement</p>
+              <Upload className="mx-auto mb-3 size-8 text-muted-foreground" />
+              <p className="text-sm font-medium text-foreground">Déposez votre CV ici ou cliquez</p>
+              <p className="mt-1 text-xs text-muted-foreground">PDF uniquement</p>
             </div>
-            <div className="flex items-center gap-3"><div className="flex-1 h-px bg-border" /><span className="text-xs text-muted-foreground">ou collez le texte</span><div className="flex-1 h-px bg-border" /></div>
+            <div className="flex items-center gap-3"><div className="h-px flex-1 bg-border" /><span className="text-xs text-muted-foreground">ou collez le texte</span><div className="h-px flex-1 bg-border" /></div>
             <Textarea value={rawText} onChange={e => setRawText(e.target.value)} placeholder="Collez le contenu de votre CV ou profil LinkedIn ici..." className="h-32 text-sm" />
             <DialogFooter><Button onClick={handleTextSubmit} disabled={!rawText.trim()}>Analyser</Button></DialogFooter>
           </div>
         )}
 
         {step === "loading" && (
-          <div className="py-12 text-center space-y-4">
-            <RefreshCw className="w-8 h-8 animate-spin mx-auto text-primary" />
-            <p className="font-medium">Analyse en cours...</p>
+          <div className="flex flex-col items-center gap-4 py-12 text-center">
+            <RefreshCw className="size-8 animate-spin text-primary" />
+            <p className="font-medium text-foreground">Analyse en cours...</p>
           </div>
         )}
 
         {step === "review" && (
-          <div className="space-y-4 py-4">
-            <p className="text-sm text-muted-foreground">{parsedExps.length} experience{parsedExps.length > 1 ? "s" : ""} trouvee{parsedExps.length > 1 ? "s" : ""}. Decochez celles que vous ne voulez pas.</p>
-            <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+          <div className="flex flex-col gap-4 py-4">
+            <p className="text-sm text-muted-foreground">{parsedExps.length} expérience{parsedExps.length > 1 ? "s" : ""} trouvée{parsedExps.length > 1 ? "s" : ""}. Décochez celles que vous ne voulez pas.</p>
+            <div className="flex max-h-[50vh] flex-col gap-3 overflow-y-auto pr-1">
               {parsedExps.map((exp, idx) => (
-                <div key={idx} onClick={() => toggleExp(idx)} className={`p-4 rounded-lg border cursor-pointer transition-all ${exp.selected ? "border-primary/50 bg-primary/5" : "border-border opacity-50"}`}>
+                <div key={idx} onClick={() => toggleExp(idx)} className={cn(
+                  "cursor-pointer rounded-2xl border p-4 transition-colors",
+                  exp.selected ? "border-primary/50 bg-primary-soft/30" : "border-border opacity-50",
+                )}>
                   <div className="flex items-start gap-3">
-                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center mt-0.5 shrink-0 ${exp.selected ? "bg-primary border-primary" : "border-border"}`}>
-                      {exp.selected && <Check className="w-3 h-3 text-primary-foreground" />}
+                    <div className={cn(
+                      "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-xs border-2",
+                      exp.selected ? "border-primary bg-primary" : "border-border",
+                    )}>
+                      {exp.selected && <Check className="size-3 text-primary-foreground" />}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-sm">{exp.title}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-foreground">{exp.title}</div>
                       <div className="text-sm text-muted-foreground">{exp.company}</div>
-                      {exp.startDate && <div className="text-xs text-muted-foreground mt-1">{exp.startDate} - {exp.endDate || "Present"}</div>}
+                      {exp.startDate && <div className="mt-1 text-xs text-muted-foreground">{exp.startDate} - {exp.endDate || "Présent"}</div>}
                       {exp.bullets && exp.bullets.length > 0 && (
-                        <div className="mt-2 space-y-1">{exp.bullets.map((b, i) => <div key={i} className="text-xs text-foreground/60 pl-3 border-l-2 border-border">{b}</div>)}</div>
+                        <div className="mt-2 flex flex-col gap-1">{exp.bullets.map((b, i) => <div key={i} className="border-l-2 border-border pl-3 text-xs text-muted-foreground">{b}</div>)}</div>
                       )}
                     </div>
                   </div>
@@ -1334,7 +1374,7 @@ function CVImportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
             <DialogFooter className="flex gap-2 pt-4">
               <Button variant="outline" onClick={() => { setStep("input"); setParsedExps([]); }}>Retour</Button>
               <Button onClick={handleSaveAll} disabled={saving || selectedCount === 0}>
-                {saving ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Import...</> : `Importer ${selectedCount} experience${selectedCount > 1 ? "s" : ""}`}
+                {saving ? <><RefreshCw className="animate-spin" /> Import...</> : `Importer ${selectedCount} expérience${selectedCount > 1 ? "s" : ""}`}
               </Button>
             </DialogFooter>
           </div>
@@ -1390,45 +1430,52 @@ function FormationsSection() {
   if (loading) return null;
 
   return (
-    <div>
-      <div className="flex justify-between items-end mb-4 gap-4">
-        <h2 className="text-lg font-semibold flex items-center gap-2">
-          <GraduationCap className="w-4 h-4 text-primary" /> Formation
-        </h2>
-        <Dialog open={addOpen} onOpenChange={setAddOpen}>
-          <DialogTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-7 text-xs"><Plus className="w-3 h-3 mr-1" /> Ajouter</Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[400px]">
-            <DialogHeader><DialogTitle>Ajouter une formation</DialogTitle></DialogHeader>
-            <form onSubmit={handleAdd} className="space-y-4 py-4">
-              <div className="space-y-2"><Label>Ecole</Label><Input required value={school} onChange={e => setSchool(e.target.value)} placeholder="Web School Factory" /></div>
-              <div className="space-y-2"><Label>Diplome</Label><Input required value={degree} onChange={e => setDegree(e.target.value)} placeholder="Master en Digital Design" /></div>
-              <div className="space-y-2"><Label>Annee</Label><Input value={year} onChange={e => setYear(e.target.value)} placeholder="2019" /></div>
-              <DialogFooter><Button type="submit">Ajouter</Button></DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </div>
+    <Card variant="panel" className="flex flex-col gap-5 p-6 md:p-8">
+      <SectionTitle
+        className="items-center"
+        title={<span className="flex items-center gap-2"><GraduationCap className="size-5 text-primary" /> Formation</span>}
+        aside={
+          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+            <DialogTrigger asChild>
+              <Button variant="ghost" size="sm"><Plus /> Ajouter</Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[400px]">
+              <DialogHeader><DialogTitle>Ajouter une formation</DialogTitle></DialogHeader>
+              <form onSubmit={handleAdd} className="flex flex-col gap-4 py-4">
+                <div className="flex flex-col gap-2"><Label>École</Label><Input inputSize="sm" required value={school} onChange={e => setSchool(e.target.value)} placeholder="Web School Factory" /></div>
+                <div className="flex flex-col gap-2"><Label>Diplôme</Label><Input inputSize="sm" required value={degree} onChange={e => setDegree(e.target.value)} placeholder="Master en Digital Design" /></div>
+                <div className="flex flex-col gap-2"><Label>Année</Label><Input inputSize="sm" value={year} onChange={e => setYear(e.target.value)} placeholder="2019" /></div>
+                <DialogFooter><Button type="submit">Ajouter</Button></DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        }
+      />
 
       {formations.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Aucune formation ajoutee.</p>
+        <p className="text-sm text-muted-foreground">Aucune formation ajoutée.</p>
       ) : (
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           {formations.map((f: any) => (
-            <div key={f.id} className="group flex items-center justify-between p-3 bg-card rounded-lg border border-border/50">
-              <div>
-                <p className="text-sm font-medium">{f.degree}</p>
+            <Card key={f.id} variant="inset" className="group flex items-center justify-between gap-3 px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">{f.degree}</p>
                 <p className="text-xs text-muted-foreground">{f.school}{f.year ? ` · ${f.year}` : ""}</p>
               </div>
-              <button onClick={() => handleDelete(f.id)} className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Supprimer la formation"
+                onClick={() => handleDelete(f.id)}
+                className="shrink-0 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
+              >
+                <X />
+              </Button>
+            </Card>
           ))}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -1479,64 +1526,69 @@ function LanguagesSection() {
   if (loading) return null;
 
   return (
-    <div>
-      <div className="flex justify-between items-end mb-4 gap-4">
-        <h2 className="text-lg font-semibold flex items-center gap-2">
-          <Globe className="w-4 h-4 text-primary" /> Langues
-        </h2>
-        <Dialog open={addOpen} onOpenChange={(val) => { setAddOpen(val); if (!val) { setName(""); setLevel(""); } }}>
-          <DialogTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-7 text-xs"><Plus className="w-3 h-3 mr-1" /> Ajouter</Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[420px]">
-            <DialogHeader><DialogTitle>Ajouter une langue</DialogTitle></DialogHeader>
-            <div className="space-y-5 py-4">
-              <div className="space-y-2">
-                <Label>Langue</Label>
-                <div className="flex flex-wrap gap-2">
-                  {LANG_SUGGESTIONS.map(l => (
-                    <button key={l} type="button" onClick={() => setName(name === l ? "" : l)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${name === l ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border hover:border-primary/50"}`}>
-                      {l}
-                    </button>
-                  ))}
+    <Card variant="panel" className="flex flex-col gap-5 p-6 md:p-8">
+      <SectionTitle
+        className="items-center"
+        title={<span className="flex items-center gap-2"><Globe className="size-5 text-primary" /> Langues</span>}
+        aside={
+          <Dialog open={addOpen} onOpenChange={(val) => { setAddOpen(val); if (!val) { setName(""); setLevel(""); } }}>
+            <DialogTrigger asChild>
+              <Button variant="ghost" size="sm"><Plus /> Ajouter</Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[420px]">
+              <DialogHeader><DialogTitle>Ajouter une langue</DialogTitle></DialogHeader>
+              <div className="flex flex-col gap-5 py-4">
+                <div className="flex flex-col gap-2">
+                  <Label>Langue</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {LANG_SUGGESTIONS.map(l => (
+                      <ChoiceChip key={l} selected={name === l} onClick={() => setName(name === l ? "" : l)}>
+                        {l}
+                      </ChoiceChip>
+                    ))}
+                  </div>
+                  <Input inputSize="sm" value={name} onChange={e => setName(e.target.value)} placeholder="Autre langue..." className="mt-2" />
                 </div>
-                <Input value={name} onChange={e => setName(e.target.value)} placeholder="Autre langue..." className="mt-2 h-8 text-sm" />
-              </div>
-              <div className="space-y-2">
-                <Label>Niveau</Label>
-                <div className="flex flex-wrap gap-2">
-                  {LEVELS.map(l => (
-                    <button key={l} type="button" onClick={() => setLevel(level === l ? "" : l)}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all ${level === l ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border hover:border-primary/50"}`}>
-                      {l}
-                    </button>
-                  ))}
+                <div className="flex flex-col gap-2">
+                  <Label>Niveau</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {LEVELS.map(l => (
+                      <ChoiceChip key={l} selected={level === l} onClick={() => setLevel(level === l ? "" : l)}>
+                        {l}
+                      </ChoiceChip>
+                    ))}
+                  </div>
                 </div>
+                <DialogFooter><Button onClick={handleAdd} disabled={!name.trim()}>Ajouter</Button></DialogFooter>
               </div>
-              <DialogFooter><Button onClick={handleAdd} disabled={!name.trim()}>Ajouter</Button></DialogFooter>
-            </div>
-          </DialogContent>
-        </Dialog>
-      </div>
+            </DialogContent>
+          </Dialog>
+        }
+      />
 
       {langs.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Aucune langue ajoutee.</p>
+        <p className="text-sm text-muted-foreground">Aucune langue ajoutée.</p>
       ) : (
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           {langs.map((l: any) => (
-            <div key={l.id} className="group flex items-center justify-between p-3 bg-card rounded-lg border border-border/50">
-              <div className="flex items-center gap-3">
-                <span className="font-medium text-sm">{l.name}</span>
+            <Card key={l.id} variant="inset" className="group flex items-center justify-between gap-3 px-4 py-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="text-sm font-medium text-foreground">{l.name}</span>
                 {l.level && <span className="text-xs text-muted-foreground">{l.level}</span>}
               </div>
-              <button onClick={() => handleDelete(l.id)} className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Supprimer la langue"
+                onClick={() => handleDelete(l.id)}
+                className="shrink-0 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
+              >
+                <X />
+              </Button>
+            </Card>
           ))}
         </div>
       )}
-    </div>
+    </Card>
   );
 }

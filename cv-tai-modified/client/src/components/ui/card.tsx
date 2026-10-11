@@ -1,20 +1,38 @@
 import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
-const Card = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={cn(
-      "shadcn-card rounded-xl border bg-card border-card-border text-card-foreground shadow-sm",
-      className
-    )}
-    {...props}
-  />
-));
+/**
+ * Cards (DA v2 — white on the tinted page, soft blue shadow):
+ * - default : rows, stat groups, option cards (radius 16)
+ * - panel   : page sections (radius 20)
+ * - tint    : help / info panels (light blue tint, e.g. "Repères utiles")
+ * - inset   : tile nested inside a card (radius 16, no shadow)
+ * - document: the generated CV sheet
+ */
+const cardVariants = cva("text-card-foreground", {
+  variants: {
+    variant: {
+      default: "rounded-2xl surface-card",
+      panel: "rounded-3xl surface-card",
+      tint: "rounded-3xl surface-tint",
+      inset: "rounded-2xl border border-border/60 bg-card",
+      document: "rounded-md border border-border/60 bg-card shadow-document",
+    },
+  },
+  defaultVariants: { variant: "default" },
+})
+
+export interface CardProps
+  extends React.HTMLAttributes<HTMLDivElement>,
+    VariantProps<typeof cardVariants> {}
+
+const Card = React.forwardRef<HTMLDivElement, CardProps>(
+  ({ className, variant, ...props }, ref) => (
+    <div ref={ref} className={cn(cardVariants({ variant }), className)} {...props} />
+  ),
+)
 Card.displayName = "Card"
 
 const CardHeader = React.forwardRef<
@@ -23,7 +41,7 @@ const CardHeader = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("flex flex-col space-y-1.5 p-6", className)}
+    className={cn("flex flex-col gap-2 p-6", className)}
     {...props}
   />
 ));
@@ -36,7 +54,7 @@ const CardTitle = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      "text-2xl font-semibold leading-none tracking-tight",
+      "text-xl font-semibold tracking-[-0.025em] text-foreground",
       className
     )}
     {...props}
@@ -50,7 +68,7 @@ const CardDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("text-sm text-muted-foreground", className)}
+    className={cn("text-base leading-6 text-muted-foreground", className)}
     {...props}
   />
 ));
@@ -82,4 +100,5 @@ export {
   CardTitle,
   CardDescription,
   CardContent,
+  cardVariants,
 }
