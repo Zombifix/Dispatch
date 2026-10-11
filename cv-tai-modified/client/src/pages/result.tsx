@@ -1,16 +1,15 @@
 import { useParams, Link, useLocation } from "wouter";
 import { Layout } from "@/components/layout";
 import { useRun } from "@/hooks/use-tailor";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  ArrowLeft, Copy, Check, AlertCircle, CheckCircle, AlertTriangle,
+  ArrowLeft, Copy, Check, AlertCircle, CheckCircle,
   Lightbulb, Hash, ChevronDown, ChevronUp,
   Globe, ShieldCheck, Zap, RefreshCw, Pencil, X,
   WandSparkles, Library, BookOpen, ExternalLink, Plus, Sparkles, FileDown,
-  Send, Calendar
+  Calendar
 } from "lucide-react";
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
@@ -452,28 +451,6 @@ function getHardWarningMeta(code: HardWarningCode) {
   }
 }
 
-function getOptimizationDecisionMeta(decision?: ReportScoreBreakdown["optimizationDecision"]) {
-  switch (decision) {
-    case "faithful_only":
-      return {
-        label: "Version fidele servie",
-        className: "bg-muted text-muted-foreground border-border/60",
-      };
-    case "optimized_selected":
-      return {
-        label: "Optimise humain retenu",
-        className: "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border-green-300 dark:border-green-700",
-      };
-    case "optimized_rejected":
-      return {
-        label: "CV fidele (optimisation rejetee)",
-        className: "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700",
-      };
-    default:
-      return null;
-  }
-}
-
 function computeLetterGrade(scoreBreakdown?: ReportScoreBreakdown, confidence?: number): { grade: string; label: string; className: string } | null {
   const score = scoreBreakdown?.pertinence ?? scoreBreakdown?.fitOffer ?? confidence;
   if (score == null) return null;
@@ -514,167 +491,6 @@ function computeWarningBanner(scoreBreakdown?: ReportScoreBreakdown, fallbackUse
     return { severity: "info", message: "Peu de bullets forts trouves pour cette annonce — selection de secours appliquee." };
   }
   return null;
-}
-
-function MatchScore({ confidence, reasoning, fallbackUsed, scoreBreakdown }: { confidence: number; reasoning?: string; fallbackUsed?: boolean; scoreBreakdown?: ReportScoreBreakdown }) {
-  const size = 56;
-  const strokeWidth = 5;
-  const radius = (size - strokeWidth * 2) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const displayScore = scoreBreakdown?.pertinence ?? scoreBreakdown?.fitOffer ?? confidence;
-  const offset = circumference * (1 - Math.max(0, Math.min(100, displayScore)) / 100);
-  const fitMeta = getFitLabel(displayScore);
-  const color = fitMeta.ringColor;
-
-  const insightSentence = reasoning || null;
-  const optimizedAts = scoreBreakdown?.atsOptimized;
-  const atsBoost = scoreBreakdown?.atsBoost || 0;
-  const badgeMeta = getBadgeMeta(scoreBreakdown?.badge);
-  const distanceLabel = getDistanceDomainLabel(scoreBreakdown?.distanceDomain);
-  const fitNiveauLabel = getFitNiveauLabel(scoreBreakdown?.fitNiveau);
-  const evidenceGrounding = scoreBreakdown?.evidenceGrounding ?? scoreBreakdown?.forcePreuve;
-  const recruiterCredibilityScore = scoreBreakdown?.recruiterCredibilityScore ?? scoreBreakdown?.credibiliteCv;
-  const overstatementRisk = scoreBreakdown?.overstatementRisk;
-  const letterGrade = computeLetterGrade(scoreBreakdown, confidence);
-
-  return (
-    <Card className="border-border/60 shadow-none" data-testid="section-match-score">
-      <CardContent className="p-4">
-        {/* Domain mismatch warning — prominent, above the ring */}
-        {(scoreBreakdown?.domainMismatch || scoreBreakdown?.distanceDomain === "different") && (
-          <div className="flex items-start gap-2 mb-3 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40">
-            <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-            <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-snug font-medium">
-              Mismatch detecte ({scoreBreakdown.domainMismatch || "distance metier"}) : les competences se croisent partiellement mais le coeur du role differe.
-            </p>
-          </div>
-        )}
-
-        <div className="flex items-center gap-4">
-          <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
-            <svg width={size} height={size} className="-rotate-90" style={{ display: "block" }}>
-              <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="currentColor" strokeWidth={strokeWidth} className="text-muted/25" />
-              <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={color} strokeWidth={strokeWidth}
-                strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round"
-                style={{ transition: "stroke-dashoffset 0.8s ease" }}
-              />
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-sm font-extrabold tabular-nums" data-testid="text-match-score-value">{displayScore}%</span>
-            </div>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className={`text-sm font-bold ${fitMeta.textColor}`} data-testid="text-match-score-label">{fitMeta.label}</p>
-              {letterGrade && (
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${letterGrade.className}`} title={letterGrade.label}>
-                  {letterGrade.grade}
-                </span>
-              )}
-              {scoreBreakdown?.badge && (
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${badgeMeta.className}`}>
-                  {badgeMeta.label}
-                </span>
-              )}
-            </div>
-            {fallbackUsed && (
-              <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium mt-0.5">Match faible : bullets de substitution utilises</p>
-            )}
-            {(distanceLabel || fitNiveauLabel) && (
-              <p className="text-[10px] text-muted-foreground mt-1">
-                {[distanceLabel, fitNiveauLabel].filter(Boolean).join(" • ")}
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Score breakdown — ATS vs semantic */}
-        {/* V3 breakdown: Fit metier + ancrage preuves + credibilite + risque */}
-        {scoreBreakdown?.fitMetier != null && (
-          <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-border/50 sm:grid-cols-4">
-            <div className="space-y-1">
-              <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-semibold">Fit metier</p>
-              <div className="flex items-center gap-1.5">
-                <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${scoreBreakdown!.fitMetier! >= 60 ? "bg-green-500" : scoreBreakdown!.fitMetier! >= 30 ? "bg-amber-500" : "bg-red-500"}`}
-                    style={{ width: `${scoreBreakdown!.fitMetier}%` }} />
-                </div>
-                <span className="text-[10px] font-bold tabular-nums text-muted-foreground">{scoreBreakdown!.fitMetier}%</span>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-semibold">Ancrage preuves</p>
-              <div className="flex items-center gap-1.5">
-                <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${evidenceGrounding! >= 60 ? "bg-green-500" : evidenceGrounding! >= 30 ? "bg-amber-500" : "bg-red-500"}`}
-                    style={{ width: `${evidenceGrounding}%` }} />
-                </div>
-                <span className="text-[10px] font-bold tabular-nums text-muted-foreground">{evidenceGrounding}%</span>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-semibold">Credibilite</p>
-              <div className="flex items-center gap-1.5">
-                <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${recruiterCredibilityScore! >= 60 ? "bg-green-500" : recruiterCredibilityScore! >= 30 ? "bg-amber-500" : "bg-red-500"}`}
-                    style={{ width: `${recruiterCredibilityScore}%` }} />
-                </div>
-                <span className="text-[10px] font-bold tabular-nums text-muted-foreground">{recruiterCredibilityScore}%</span>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-semibold">Risque survente</p>
-              <div className="flex items-center gap-1.5">
-                <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${overstatementRisk! <= 35 ? "bg-green-500" : overstatementRisk! < 60 ? "bg-amber-500" : "bg-red-500"}`}
-                    style={{ width: `${overstatementRisk}%` }} />
-                </div>
-                <span className="text-[10px] font-bold tabular-nums text-muted-foreground">{overstatementRisk}%</span>
-              </div>
-            </div>
-          </div>
-        )}
-        {/* Legacy breakdown: ATS + semantic (when v3 not available) */}
-        {scoreBreakdown && scoreBreakdown.fitMetier == null && (
-          <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-border/50">
-            <div className="space-y-1">
-              <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-semibold">Keywords prouves</p>
-              <div className="flex items-center gap-1.5">
-                <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${scoreBreakdown.ats >= 70 ? "bg-green-500" : scoreBreakdown.ats >= 40 ? "bg-amber-500" : "bg-red-500"}`}
-                    style={{ width: `${scoreBreakdown.ats}%` }} />
-                </div>
-                <span className="text-[10px] font-bold tabular-nums text-muted-foreground">{scoreBreakdown.ats}%</span>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-semibold">Bullets semantiques</p>
-              <div className="flex items-center gap-1.5">
-                <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${scoreBreakdown.semantic >= 70 ? "bg-green-500" : scoreBreakdown.semantic >= 40 ? "bg-amber-500" : "bg-red-500"}`}
-                    style={{ width: `${scoreBreakdown.semantic}%` }} />
-                </div>
-                <span className="text-[10px] font-bold tabular-nums text-muted-foreground">{scoreBreakdown.semantic}%</span>
-              </div>
-            </div>
-          </div>
-        )}
-        {scoreBreakdown && optimizedAts !== undefined && optimizedAts > scoreBreakdown.ats && (
-          <p className="text-[10px] text-muted-foreground leading-relaxed mt-2">
-            ATS final du CV : <span className="font-semibold text-foreground">{optimizedAts}%</span>
-            {atsBoost ? ` (+${atsBoost}% via optimisation)` : ""}
-            {overstatementRisk != null ? ", a lire apres la credibilite et l'ancrage preuves." : ""}
-          </p>
-        )}
-
-        {insightSentence && !scoreBreakdown && (
-          <p className="text-[11px] text-muted-foreground leading-relaxed mt-3 pt-3 border-t border-border/50 italic" data-testid="text-match-score-insight">
-            {insightSentence}.
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  );
 }
 
 function SkillsCoverage({ matched, missing }: { matched: string[]; missing: string[] }) {
@@ -1147,59 +963,6 @@ function EnrichmentCoaching({ report, selectedExperienceIds, jobTitle }: {
         </div>
       </div>
     </div>
-  );
-}
-
-function LibrarySuggestions({ missingSkills }: { missingSkills: string[] }) {
-  const [added, setAdded] = useState<Set<string>>(new Set());
-
-  const mutation = useMutation({
-    mutationFn: (skill: string) =>
-      apiRequest("POST", "/api/skills", { name: skill, level: null, priority: 0 }),
-    onSuccess: (_: unknown, skill: string) => {
-      setAdded(prev => new Set([...prev, skill]));
-      queryClient.invalidateQueries({ queryKey: ["/api/skills"] });
-    },
-  });
-
-  if (!missingSkills.length) return null;
-
-  return (
-    <Card className="border-border/60 shadow-none border-amber-200/60 dark:border-amber-800/40 bg-amber-50/40 dark:bg-amber-950/20" data-testid="section-library-suggestions">
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-          <h3 className="text-xs font-bold text-amber-700 dark:text-amber-300 tracking-wide uppercase">Ameliorer la bibliotheque</h3>
-        </div>
-        <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">
-          Ces competences manquent dans votre Super-CV. Ajoutez-les en 1 clic pour ameliorer vos prochains tailorings.
-        </p>
-        <div className="flex flex-wrap gap-1.5">
-          {missingSkills.slice(0, 12).map(skill => {
-            const isAdded = added.has(skill);
-            return (
-              <button
-                key={skill}
-                data-testid={`button-add-skill-${skill}`}
-                onClick={() => { if (!isAdded && !mutation.isPending) mutation.mutate(skill); }}
-                disabled={isAdded || mutation.isPending}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border transition-all ${
-                  isAdded
-                    ? "bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 cursor-default"
-                    : "bg-background border-border/60 text-foreground hover:border-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30 cursor-pointer"
-                }`}
-              >
-                {isAdded
-                  ? <Check className="w-3 h-3" />
-                  : <Plus className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-                }
-                {repairMojibake(skill)}
-              </button>
-            );
-          })}
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -2357,7 +2120,6 @@ export default function Result() {
   const [exported, setExported] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editedText, setEditedText] = useState<string | null>(null);
-  const [actionsOpen, setActionsOpen] = useState(false);
   const { toast } = useToast();
 
   const displayText = repairMojibake(editedText ?? run?.outputCvText ?? "");
@@ -2473,7 +2235,6 @@ export default function Result() {
   const keyInsight = repairMojibake(report?.confidenceReasoning || "") || null;
   const fitOffer = report?.scoreBreakdown?.fitOffer ?? report?.confidence;
   const displayScore = report?.scoreBreakdown?.pertinence ?? fitOffer;
-  const scoreLabel = report?.scoreBreakdown?.fitMetier != null ? "Pertinence" : "Fit offre";
   const jobUrl = run?.jobPost?.url;
   const allKeywords = [
     ...(report?.detectedKeywords?.requiredSkills || []),

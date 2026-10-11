@@ -6,10 +6,9 @@ import { api } from "@shared/routes";
 import { z } from "zod";
 import OpenAI from "openai";
 import { db } from "./db";
-import { bullets, runs } from "@shared/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { runs } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
 import {
-  normalizeLinkedInUrl,
   checkLLMHealth,
   runTailorPipeline,
   runDryRunCheck,
@@ -20,6 +19,7 @@ import {
 } from "./tailoring-engine";
 import { createUser, getUserByEmail } from "./auth";
 import { resolveJobInput } from "./job-input";
+import { createLlmClient, completeJson, LLM_MODELS } from "./llm";
 import type { User } from "@shared/schema";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
@@ -27,11 +27,36 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
   res.status(401).json({ error: "Unauthorized" });
 }
 
-let openai: OpenAI | null = null;
-if (process.env.OPENAI_API_KEY) {
-  openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  });
+const openai: OpenAI | null = createLlmClient();
+
+// Schémas des réponses LLM des routes bibliothèque (forme garantie, sinon repli explicite).
+const str = z.string();
+const strList = z.array(z.union([z.string(), z.number()]).transform(String));
+const IMPORT_SCHEMA = z.object({
+  experiences: z.array(z.object({
+    title: str.optional(), company: str.optional(),
+    startDate: str.nullable().optional(), endDate: str.nullable().optional(),
+    description: str.nullable().optional(), bullets: strList.optional(),
+  })).default([]),
+});
+const SKILLS_SCHEMA = z.object({ skills: z.array(z.object({ name: str, category: str.optional() })).default([]) });
+const AXES_SCHEMA = z.object({ axes: z.array(z.object({ text: str, source: str.optional() })).default([]) });
+const GAPS_SCHEMA = z.object({
+  gaps: z.array(z.object({ id: str.optional(), dimension: str.optional(), question: str, priority: z.number().optional() })).default([]),
+});
+const CRITERIA = ["clarte", "contexte", "scope", "impact", "completude"] as const;
+const TAG_EVAL_SCHEMA = z.object({
+  tags: strList.default([]),
+  evaluation: z.object(Object.fromEntries(CRITERIA.map(c => [c, z.boolean()])) as Record<typeof CRITERIA[number], z.ZodBoolean>).nullable().optional(),
+  reasons: z.record(z.string()).nullable().optional(),
+  suggestion: str.nullable().optional(),
+});
+
+function embeddingStoreFor(userId: number) {
+  return {
+    load: () => storage.getBulletEmbeddings(userId),
+    save: (entries: { id: string; key: string; vector: number[] }[]) => storage.saveBulletEmbeddings(entries),
+  };
 }
 
 function uid(req: Request): number {
@@ -229,19 +254,12 @@ Réponds UNIQUEMENT en JSON valide, sans markdown ni backticks :
 CV à analyser :
 ${truncated}`;
 
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+      const parsed = await completeJson(openai, {
+        model: LLM_MODELS.fast,
         messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" },
+        schema: IMPORT_SCHEMA,
         temperature: 0.3,
       });
-
-      let parsed;
-      try {
-        parsed = JSON.parse(response.choices[0].message.content || "{}");
-      } catch {
-        return res.status(500).json({ message: "L'IA n'a pas pu analyser le contenu." });
-      }
 
       const experiences = parsed.experiences || [];
       console.log("[IMPORT] Parsed", experiences.length, "experiences");
@@ -471,19 +489,12 @@ Reponds UNIQUEMENT en JSON valide :
   ]
 }`;
 
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+      const result = await completeJson(openai, {
+        model: LLM_MODELS.fast,
         messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" },
+        schema: SKILLS_SCHEMA,
         temperature: 0.3,
       });
-
-      let result;
-      try {
-        result = JSON.parse(response.choices[0].message.content || "{}");
-      } catch {
-        return res.json({ skills: [] });
-      }
 
       const extracted = result.skills || [];
       // Filter out duplicates
@@ -671,17 +682,12 @@ REGLES :
 
 Reponds en JSON : {"axes": [{"text": "description courte de l'axe", "source": "description|bullet|inferred"}]}`;
 
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+      const result = await completeJson(openai, {
+        model: LLM_MODELS.fast,
         messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" },
+        schema: AXES_SCHEMA,
         temperature: 0.3,
       });
-
-      let result;
-      try {
-        result = JSON.parse(response.choices[0].message.content || "{}");
-      } catch { result = { axes: [] }; }
 
       res.json({ axes: (result.axes || []).slice(0, 5) });
     } catch (err: any) {
@@ -748,19 +754,12 @@ MAUVAIS EXEMPLES :
 Reponds UNIQUEMENT en JSON valide :
 {"gaps": [{"id": "g1", "dimension": "scope|impact|contexte|methode|collaboration|difficultes", "question": "...", "priority": 1}]}`;
 
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+      const result = await completeJson(openai, {
+        model: LLM_MODELS.fast,
         messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" },
+        schema: GAPS_SCHEMA,
         temperature: 0.5,
       });
-
-      let result;
-      try {
-        result = JSON.parse(response.choices[0].message.content || "{}");
-      } catch {
-        result = { gaps: [] };
-      }
 
       res.json(result);
     } catch (err: any) {
@@ -818,16 +817,12 @@ JSON uniquement :
   "suggestion": "Tu pourrais preciser le nombre d'equipes concernees" ou null
 }`;
 
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+      const result = await completeJson(openai, {
+        model: LLM_MODELS.fast,
         messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" },
+        schema: TAG_EVAL_SCHEMA,
         temperature: 0.2,
       });
-
-      let result;
-      try { result = JSON.parse(response.choices[0].message.content || "{}"); }
-      catch { result = { tags: ["general"], evaluation: null, reasons: null, suggestion: null }; }
 
       res.json({
         tags: Array.isArray(result.tags) ? result.tags : ["general"],
@@ -868,6 +863,7 @@ JSON uniquement :
           allExperiences: allExps,
           allBullets,
           allSkills,
+          embeddingStore: embeddingStoreFor(userId),
         }, openai);
       }
 
@@ -937,6 +933,7 @@ JSON uniquement :
         profile: profileData ? { name: profileData.name, title: profileData.title, summary: profileData.summary } : undefined,
         formations,
         languages: langs,
+        embeddingStore: embeddingStoreFor(userId),
       }, openai);
 
       // Save job post

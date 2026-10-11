@@ -17,7 +17,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import OpenAI from "openai";
+import { createLlmClient } from "../server/llm";
 import { runTailorPipeline, type TailorInput } from "../server/tailoring-engine";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -109,7 +109,8 @@ async function main() {
     return;
   }
 
-  if (!process.env.OPENAI_API_KEY) fail("OPENAI_API_KEY requis pour rejouer le corpus.");
+  const openai = createLlmClient();
+  if (!openai) fail("OPENAI_API_KEY (ou LLM_API_KEY) requis pour rejouer le corpus.");
   const libraryPath = path.join(CORPUS_DIR, "library.json");
   if (!fs.existsSync(libraryPath)) {
     fail(`Corpus manquant: ${libraryPath}\nLance d'abord: npm run eval -- --export (avec DATABASE_URL), ou crée le fichier à la main.`);
@@ -121,7 +122,6 @@ async function main() {
     : [];
   if (offerFiles.length === 0) fail(`Aucune offre dans ${OFFERS_DIR}${offerFilter ? ` (filtre: ${offerFilter})` : ""}`);
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const runStamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const outDir = path.join(RUNS_DIR, runStamp);
   fs.mkdirSync(outDir, { recursive: true });

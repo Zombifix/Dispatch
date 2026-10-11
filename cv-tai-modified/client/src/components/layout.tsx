@@ -9,19 +9,6 @@ type NavItemDef = {
   icon: React.ElementType<{ className?: string }>;
 };
 
-function DispatchMark({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
-      <path d="M6 4.4L17 4.4" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-      <path d="M6 10L17 10" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-      <path d="M6 15.6L17 15.6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-      <circle cx="3.2" cy="4.4" r="1.4" fill="currentColor" />
-      <circle cx="3.2" cy="10" r="1.4" fill="currentColor" />
-      <circle cx="3.2" cy="15.6" r="1.4" fill="currentColor" />
-    </svg>
-  );
-}
-
 function SuperCvIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">

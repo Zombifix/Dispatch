@@ -1,10 +1,10 @@
 import { db } from "./db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, isNotNull } from "drizzle-orm";
 import {
   profile, experiences, bullets, skills, formations, languages, jobPosts, runs,
   type Profile, type InsertProfile,
   type Experience, type InsertExperience,
-  type Bullet, type InsertBullet,
+  type Bullet, type BulletRow, type InsertBullet,
   type Skill, type InsertSkill,
   type Formation, type InsertFormation,
   type Language, type InsertLanguage,
@@ -12,6 +12,21 @@ import {
   type Run, type InsertRun,
   type RunResponse
 } from "@shared/schema";
+
+// Colonnes exposées d'un bullet : jamais l'embedding (1 536 flottants) dans l'API.
+const bulletColumns = {
+  id: bullets.id,
+  experienceId: bullets.experienceId,
+  text: bullets.text,
+  priority: bullets.priority,
+  tags: bullets.tags,
+  createdAt: bullets.createdAt,
+};
+export type PublicBullet = Bullet;
+const withoutEmbedding = (b: BulletRow): PublicBullet => {
+  const { embedding: _e, embeddingKey: _k, ...rest } = b;
+  return rest;
+};
 
 export interface IStorage {
   // Profile
@@ -26,11 +41,13 @@ export interface IStorage {
   deleteExperience(userId: number, id: string): Promise<void>;
 
   // Bullets (scoped via experience ownership)
-  getBulletsByExperience(userId: number, expId: string): Promise<Bullet[]>;
-  createBullet(userId: number, bullet: InsertBullet): Promise<Bullet>;
-  updateBullet(userId: number, id: string, updates: Partial<InsertBullet>): Promise<Bullet>;
+  getBulletsByExperience(userId: number, expId: string): Promise<PublicBullet[]>;
+  createBullet(userId: number, bullet: InsertBullet): Promise<PublicBullet>;
+  updateBullet(userId: number, id: string, updates: Partial<InsertBullet>): Promise<PublicBullet>;
   deleteBullet(userId: number, id: string): Promise<void>;
-  getAllBullets(userId: number): Promise<Bullet[]>;
+  getAllBullets(userId: number): Promise<PublicBullet[]>;
+  getBulletEmbeddings(userId: number): Promise<Map<string, { key: string; vector: number[] }>>;
+  saveBulletEmbeddings(entries: { id: string; key: string; vector: number[] }[]): Promise<void>;
 
   // Skills
   getSkills(userId: number): Promise<Skill[]>;
@@ -115,7 +132,7 @@ export class DatabaseStorage implements IStorage {
     // Verify the experience belongs to the user
     const exp = await this.getExperience(userId, expId);
     if (!exp) return [];
-    return await db.select().from(bullets)
+    return await db.select(bulletColumns).from(bullets)
       .where(eq(bullets.experienceId, expId))
       .orderBy(bullets.priority);
   }
@@ -124,31 +141,41 @@ export class DatabaseStorage implements IStorage {
     const exp = await this.getExperience(userId, bullet.experienceId);
     if (!exp) throw new Error("Experience not found or access denied");
     const [created] = await db.insert(bullets).values(bullet).returning();
-    return created;
+    return withoutEmbedding(created);
   }
   async updateBullet(userId: number, id: string, updates: Partial<InsertBullet>) {
     // Join through experience to verify ownership
-    const [bullet] = await db.select().from(bullets).where(eq(bullets.id, id));
+    const [bullet] = await db.select(bulletColumns).from(bullets).where(eq(bullets.id, id));
     if (!bullet) throw new Error("Bullet not found");
     const exp = await this.getExperience(userId, bullet.experienceId);
     if (!exp) throw new Error("Access denied");
     const [updated] = await db.update(bullets).set(updates).where(eq(bullets.id, id)).returning();
-    return updated;
+    return withoutEmbedding(updated);
   }
   async deleteBullet(userId: number, id: string) {
-    const [bullet] = await db.select().from(bullets).where(eq(bullets.id, id));
+    const [bullet] = await db.select(bulletColumns).from(bullets).where(eq(bullets.id, id));
     if (!bullet) return;
     const exp = await this.getExperience(userId, bullet.experienceId);
     if (!exp) return;
     await db.delete(bullets).where(eq(bullets.id, id));
   }
   async getAllBullets(userId: number) {
-    // Get all bullets for this user's experiences via join
-    const userExps = await this.getExperiences(userId);
-    if (userExps.length === 0) return [];
-    const expIds = userExps.map(e => e.id);
-    const allBullets = await db.select().from(bullets);
-    return allBullets.filter(b => expIds.includes(b.experienceId));
+    return await db.select(bulletColumns).from(bullets)
+      .innerJoin(experiences, eq(bullets.experienceId, experiences.id))
+      .where(eq(experiences.userId, userId))
+      .orderBy(bullets.priority);
+  }
+  async getBulletEmbeddings(userId: number) {
+    const rows = await db.select({ id: bullets.id, key: bullets.embeddingKey, vector: bullets.embedding })
+      .from(bullets)
+      .innerJoin(experiences, eq(bullets.experienceId, experiences.id))
+      .where(and(eq(experiences.userId, userId), isNotNull(bullets.embeddingKey)));
+    return new Map(rows.filter(r => r.key && r.vector).map(r => [r.id, { key: r.key!, vector: r.vector! }]));
+  }
+  async saveBulletEmbeddings(entries: { id: string; key: string; vector: number[] }[]) {
+    for (const e of entries) {
+      await db.update(bullets).set({ embedding: e.vector, embeddingKey: e.key }).where(eq(bullets.id, e.id));
+    }
   }
 
   // Skills

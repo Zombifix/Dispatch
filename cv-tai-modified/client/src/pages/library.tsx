@@ -13,10 +13,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Plus, Building, Calendar, Pencil, RefreshCw, Briefcase, Zap, Upload, Sparkles, Check, X, GraduationCap, Globe, ChevronDown, HelpCircle, Target, SkipForward } from "lucide-react";
+import { Plus, Building, Calendar, Pencil, RefreshCw, Briefcase, Zap, Upload, Sparkles, Check, X, GraduationCap, Globe, ChevronDown, HelpCircle, Target } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import type { Experience, Bullet } from "@shared/schema";
+import type { Experience } from "@shared/schema";
 
 /* ══════════════════════════════════════════════════════════════════
    DEEP-LINK CONTEXT — read URL params from result page
@@ -1006,13 +1006,6 @@ function SkillsSection() {
   const [addCategory, setAddCategory] = useState("Techniques");
 
   const CATEGORIES = ["Outils", "Methodologies", "Soft Skills", "Domaines", "Techniques"];
-  const CATEGORY_ICONS: Record<string, string> = {
-    "Outils": "wrench",
-    "Methodologies": "compass",
-    "Soft Skills": "users",
-    "Domaines": "globe",
-    "Techniques": "code",
-  };
 
   const grouped = CATEGORIES.reduce((acc, cat) => {
     const catSkills = (skills || []).filter(s => (s.category || "Techniques") === cat);
@@ -1204,11 +1197,6 @@ function SkillsSection() {
       </Dialog>
     </div>
   );
-}
-
-function SkillDialog({ open, onOpenChange, skill, onClose }: any) {
-  // Kept for backward compat but no longer used as primary
-  return null;
 }
 
 /* ══════════════════════════════════════════════════════════════════

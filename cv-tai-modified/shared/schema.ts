@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, date, uuid, jsonb, unique, index, varchar, json } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, date, uuid, jsonb, unique, index, varchar, json, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { sql } from "drizzle-orm";
@@ -56,6 +56,10 @@ export const bullets = pgTable("bullets", {
   text: text("text").notNull(),
   priority: integer("priority").default(0),
   tags: text("tags").array().default(sql`'{}'::text[]`),
+  // Embedding mis en cache : recalculé seulement si le texte ou le modèle change
+  // (embeddingKey = hash(modèle, texte embeddé)). Tableau simple : pas besoin de pgvector.
+  embedding: real("embedding").array(),
+  embeddingKey: text("embedding_key"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => [index("IDX_bullets_experience_id").on(t.experienceId)]);
 
@@ -110,7 +114,7 @@ export const runs = pgTable("runs", {
 
 export const insertProfileSchema = createInsertSchema(profile).omit({ id: true, updatedAt: true, userId: true });
 export const insertExperienceSchema = createInsertSchema(experiences).omit({ id: true, createdAt: true, userId: true });
-export const insertBulletSchema = createInsertSchema(bullets).omit({ id: true, createdAt: true });
+export const insertBulletSchema = createInsertSchema(bullets).omit({ id: true, createdAt: true, embedding: true, embeddingKey: true });
 export const insertSkillSchema = createInsertSchema(skills).omit({ id: true, createdAt: true, userId: true });
 export const insertFormationSchema = createInsertSchema(formations).omit({ id: true, createdAt: true, userId: true });
 export const insertLanguageSchema = createInsertSchema(languages).omit({ id: true, createdAt: true, userId: true });
@@ -123,7 +127,9 @@ export type InsertProfile = z.infer<typeof insertProfileSchema>;
 export type Experience = typeof experiences.$inferSelect;
 export type InsertExperience = z.infer<typeof insertExperienceSchema>;
 
-export type Bullet = typeof bullets.$inferSelect;
+export type BulletRow = typeof bullets.$inferSelect;
+/** Bullet tel qu'exposé par l'API et utilisé par le moteur (sans le cache d'embedding). */
+export type Bullet = Omit<BulletRow, "embedding" | "embeddingKey">;
 export type InsertBullet = z.infer<typeof insertBulletSchema>;
 
 export type Skill = typeof skills.$inferSelect;
