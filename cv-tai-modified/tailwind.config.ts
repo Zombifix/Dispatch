@@ -25,8 +25,8 @@ export default {
       },
       fontSize: {
         "2xs": ["12px", { lineHeight: "16px" }], // readability floor: nothing below 12px
-        eyebrow: ["14px", { lineHeight: "19px", letterSpacing: "0.2em" }],
-        "eyebrow-sm": ["12px", { lineHeight: "16px", letterSpacing: "0.16em" }],
+        eyebrow: ["13px", { lineHeight: "18px", letterSpacing: "0.12em" }],
+        "eyebrow-sm": ["12px", { lineHeight: "16px", letterSpacing: "0.1em" }],
         display: ["44px", { lineHeight: "1.15", letterSpacing: "-0.035em" }],
         "display-lg": ["48px", { lineHeight: "1", letterSpacing: "-0.025em" }],
       },
@@ -120,6 +120,7 @@ export default {
         nav: "0 2px 4px -2px hsl(var(--primary) / 0.2)",
         document: "0 2px 24px 0 rgb(0 0 0 / 0.07)",
         card: "0 1px 2px 0 hsl(var(--foreground) / 0.03), 0 12px 32px -16px hsl(var(--primary) / 0.12)",
+        paper: "0 1px 1px hsl(var(--foreground) / 0.04), 0 10px 20px -10px hsl(var(--foreground) / 0.10), 0 40px 80px -32px hsl(var(--primary) / 0.22)",
         xs: "0 1px 2px 0 rgb(0 0 0 / 0.05)",
       },
       backgroundImage: {

@@ -54,7 +54,9 @@ sinon `destructive`, alignées sur les libellés "Fit fort / partiel / faible". 
 - Titre de section : `text-2xl font-semibold tracking-[-0.025em]` (ou `SectionTitle`)
 - Titre de carte : `text-xl font-semibold tracking-[-0.025em]` (ou `CardTitle`)
 - Corps : `text-base text-muted-foreground leading-6` ; petit : `text-sm`
-- Eyebrow (labels uppercase) : `<Eyebrow>` (14px, 0.2em) / `<Eyebrow size="sm">` (12px)
+- Eyebrow : `<Eyebrow>` (13px / 12px, uppercase, même typo que le reste). **Une seule typo dans l'app** :
+  pas de police mono pour les labels, dates ou chiffres (les chiffres utilisent `tabular-nums`).
+- Pas de micro-annotations décoratives (compteurs, méta, sous-labels) : un texte n'est affiché que s'il aide à agir.
 - Micro (chips, méta) : `text-2xs` (12px) — **plancher de lisibilité : rien sous 12px**
 
 ### Ombres / fonds
@@ -104,3 +106,16 @@ Ne jamais référencer les PNG directement.
 - Les métriques internes du moteur (sous-scores, debug) ne sont visibles qu'en dev ou avec
   `localStorage["dispatch:debug"] = "1"`.
 - Cibles tactiles : 44 px minimum en mobile.
+
+## Partis pris de composition (passe DA, oct. 2026)
+- **Un point focal par page**, pas une pile de cartes de même poids :
+  Tailoring = le composer (saisie + mode + options + action dans une seule surface) ;
+  Résultat = la feuille de CV (`PaperSheet`, format A4, ombre `shadow-paper`) ;
+  Super CV = l'identité (nom en titre) puis la trajectoire (frise chronologique) ;
+  Historique = la liste de candidatures.
+- **L'action vit avec l'objet sur lequel elle agit** : "Générer" en pied du composer, "Copier / Export"
+  dans la barre d'outils du document.
+- **Le score est un chiffre, pas un gadget** : grand nombre mono + libellé + barre, une seule fois par page.
+- **Regrouper plutôt qu'empiler** : sections liées dans une même carte séparées par des filets
+  (`Card variant="flush"` + `divide-y`), sections principales posées directement sur la page.
+- **Le pipeline est montré** : avant la génération il explique, pendant il indique la progression.

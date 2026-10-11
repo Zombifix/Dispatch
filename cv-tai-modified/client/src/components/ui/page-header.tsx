@@ -1,7 +1,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
-/** Uppercase spaced label — "ANNONCE CIBLE", "FAST LANE", stat labels. */
+/** Small uppercase label (section labels, stat labels). Same typeface as the rest of the UI. */
 export function Eyebrow({
   className,
   size = "default",
@@ -32,7 +32,7 @@ export function PageHeader({ eyebrow, title, description, actions, className }: 
   return (
     <header className={cn("flex flex-col gap-5 md:flex-row md:items-end md:justify-between", className)}>
       <div className="flex min-w-0 flex-col items-start gap-2">
-        {eyebrow ? <Eyebrow size="sm" className="tracking-[0.2em]">{eyebrow}</Eyebrow> : null}
+        {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
         <h1 className="text-3xl font-extrabold leading-tight tracking-[-0.035em] text-foreground md:text-display">{title}</h1>
         {description ? <p className="max-w-[760px] text-base leading-7 text-muted-foreground md:text-lg">{description}</p> : null}
       </div>
@@ -47,20 +47,22 @@ export function SectionTitle({
   title,
   description,
   aside,
+  size = "default",
   className,
 }: {
   eyebrow?: React.ReactNode;
   title: React.ReactNode;
   description?: React.ReactNode;
   aside?: React.ReactNode;
+  size?: "default" | "sm";
   className?: string;
 }) {
   return (
     <div className={cn("flex flex-wrap items-start justify-between gap-3", className)}>
       <div className="flex flex-col gap-1">
         {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
-        <h2 className="text-2xl font-semibold tracking-[-0.025em] text-foreground">{title}</h2>
-        {description ? <p className="text-base leading-6 text-muted-foreground">{description}</p> : null}
+        <h2 className={cn("font-semibold tracking-[-0.025em] text-foreground", size === "sm" ? "text-lg" : "text-2xl")}>{title}</h2>
+        {description ? <p className={cn("leading-6 text-muted-foreground", size === "sm" ? "text-sm" : "text-base")}>{description}</p> : null}
       </div>
       {aside}
     </div>
@@ -103,7 +105,7 @@ export function StatGroup({ items, className }: { items: StatItem[]; className?:
             <span className="flex min-w-0 flex-col">
               <span className="text-3xl font-bold leading-9 tracking-[-0.02em] text-foreground">{item.value}</span>
               <span className="text-base font-semibold text-foreground">{item.label}</span>
-              {item.hint ? <span className="mt-1 hidden text-sm leading-5 text-muted-foreground md:block">{item.hint}</span> : null}
+              {item.hint ? <span className="mt-1 hidden text-sm leading-5 text-muted-foreground 2xl:block">{item.hint}</span> : null}
             </span>
             {item.active ? <span className="absolute inset-x-6 bottom-0 h-0.5 rounded-full bg-primary" /> : null}
           </Comp>

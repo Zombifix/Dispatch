@@ -7,7 +7,7 @@ const twMerge = extendTailwindMerge({
   extend: {
     classGroups: {
       "font-size": [{ text: ["2xs", "eyebrow", "eyebrow-sm", "display", "display-lg"] }],
-      shadow: [{ shadow: ["cta", "cta-sm", "nav", "document", "card"] }],
+      shadow: [{ shadow: ["cta", "cta-sm", "nav", "document", "card", "paper"] }],
       "bg-image": [{ bg: ["cta-gradient", "highlight-panel"] }],
       rounded: [{ rounded: ["4xl"] }],
     },

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { format } from "date-fns";
+import { fr } from "date-fns/locale";
 import { Layout } from "@/components/layout";
 import { useExperiences, useCreateExperience, useUpdateExperience, useDeleteExperience } from "@/hooks/use-experiences";
 import { useBullets, useCreateBullet, useUpdateBullet, useDeleteBullet } from "@/hooks/use-bullets";
@@ -13,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
-import { PageHeader, SectionTitle, Eyebrow } from "@/components/ui/page-header";
+import { SectionTitle, Eyebrow } from "@/components/ui/page-header";
 import { Mascot } from "@/components/brand/mascot";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Plus, Building, Calendar, Pencil, RefreshCw, Briefcase, Zap, Upload, Sparkles, Check, X, GraduationCap, Globe, ChevronDown, HelpCircle, Target } from "lucide-react";
@@ -122,6 +123,12 @@ function useProfile() {
   return { profile, save, loaded };
 }
 
+function initialsOf(name?: string) {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  const letters = parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : (parts[0] || "?").slice(0, 2);
+  return letters.toUpperCase();
+}
+
 /* ══════════════════════════════════════════════════════════════════
    MAIN PAGE — Single page, no tabs
    ══════════════════════════════════════════════════════════════════ */
@@ -145,50 +152,59 @@ export default function Library() {
   return (
     <Layout>
       <div className="flex flex-col gap-7">
-        <PageHeader
-          eyebrow="Super CV"
-          title="Bibliothèque source"
-          description="La base qui alimente tous tes tailorings."
-        />
-
-        {/* ── PROFILE HEADER ── */}
-        <Card variant="panel" className="p-6 md:p-8">
-          {editingProfile ? (
-            <div className="flex flex-col gap-3 animate-in fade-in-50">
-              <Input inputSize="sm" value={profileDraft.name} onChange={e => setProfileDraft({ ...profileDraft, name: e.target.value })}
-                placeholder="Prénom Nom" className="h-auto rounded-none border-0 bg-transparent p-0 text-2xl font-semibold tracking-[-0.025em] focus-visible:ring-0" />
-              <Input inputSize="sm" value={profileDraft.title} onChange={e => setProfileDraft({ ...profileDraft, title: e.target.value })}
-                placeholder="Senior Product Designer" className="h-auto rounded-none border-0 bg-transparent p-0 text-base text-muted-foreground focus-visible:ring-0" />
-              <Input inputSize="sm" value={profileDraft.summary} onChange={e => setProfileDraft({ ...profileDraft, summary: e.target.value })}
-                placeholder="Une phrase qui te résume (optionnel)" className="h-auto rounded-none border-0 bg-transparent p-0 text-sm text-muted-foreground focus-visible:ring-0" />
-              <div>
-                <Button size="sm" onClick={handleSaveProfile}>Valider</Button>
-              </div>
+        {/* ── IDENTITY: the library *is* the person — name as the page title ── */}
+        <header className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+          <div className="flex min-w-0 items-start gap-5">
+            <span className="hidden size-20 shrink-0 items-center justify-center rounded-2xl bg-cta-gradient text-2xl font-bold text-primary-foreground shadow-cta sm:flex" aria-hidden>
+              {initialsOf(profile.name)}
+            </span>
+            <div className="flex min-w-0 flex-col gap-2">
+              <Eyebrow>Super CV</Eyebrow>
+              {editingProfile ? (
+                <div className="flex flex-col gap-2 animate-in fade-in-50">
+                  <Input value={profileDraft.name} onChange={e => setProfileDraft({ ...profileDraft, name: e.target.value })}
+                    placeholder="Prénom Nom" aria-label="Nom" className="h-14 text-2xl font-bold" />
+                  <Input inputSize="sm" value={profileDraft.title} onChange={e => setProfileDraft({ ...profileDraft, title: e.target.value })}
+                    placeholder="Senior Product Designer" aria-label="Poste" />
+                  <Input inputSize="sm" value={profileDraft.summary} onChange={e => setProfileDraft({ ...profileDraft, summary: e.target.value })}
+                    placeholder="Une phrase qui te résume (optionnel)" aria-label="Résumé" />
+                </div>
+              ) : (
+                <>
+                  <h1 className="text-3xl font-extrabold leading-tight tracking-[-0.035em] text-foreground md:text-display">
+                    {profile.name || "Ton nom"}
+                  </h1>
+                  <p className="text-base text-muted-foreground md:text-lg">
+                    <span className="font-medium text-foreground/80">{profile.title || "Ton poste"}</span>
+                    {profile.summary ? <> — {profile.summary}</> : null}
+                  </p>
+                </>
+              )}
             </div>
-          ) : (
-            <div className="group flex items-start justify-between gap-4">
-              <div className="flex flex-col gap-1">
-                <h2 className="text-2xl font-semibold tracking-[-0.025em] text-foreground">{profile.name || "Votre nom"}</h2>
-                <p className="text-base text-muted-foreground">{profile.title || "Votre poste"}</p>
-                {profile.summary && <p className="text-sm text-muted-foreground">{profile.summary}</p>}
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => setEditingProfile(true)}>
-                <Pencil />
-                Modifier
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {editingProfile ? (
+              <>
+                <Button variant="ghost" onClick={() => setEditingProfile(false)}>Annuler</Button>
+                <Button onClick={handleSaveProfile}><Check /> Enregistrer</Button>
+              </>
+            ) : (
+              <Button variant="outline" onClick={() => setEditingProfile(true)}>
+                <Pencil /> Modifier le profil
               </Button>
-            </div>
-          )}
-        </Card>
+            )}
+          </div>
+        </header>
 
         {/* Main column: experiences (the core of the library). Aside: skills, education, languages. */}
-        <div className="grid items-start gap-7 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="grid items-start gap-8 xl:grid-cols-[minmax(0,1fr)_400px]">
           <ExperiencesSection enrichmentContext={enrichmentContext} />
 
-          <div className="flex flex-col gap-7 xl:sticky xl:top-6">
+          <Card variant="panel" className="divide-y divide-border/60 overflow-hidden xl:sticky xl:top-6">
             <SkillsSection />
             <FormationsSection />
             <LanguagesSection />
-          </div>
+          </Card>
         </div>
 
       </div>
@@ -248,7 +264,7 @@ function ExperiencesSection({ enrichmentContext }: { enrichmentContext?: Enrichm
   };
 
   return (
-    <Card variant="panel" className="flex flex-col gap-6 p-6 md:p-8">
+    <section className="flex flex-col gap-6" aria-label="Expériences">
       {/* Contextual banner when arriving from result page */}
       {enrichmentContext?.jobTitle && enrichmentContext?.missingKeywords?.length ? (
         <div className="rounded-2xl border border-warning/30 bg-warning-soft/50 p-4">
@@ -268,8 +284,8 @@ function ExperiencesSection({ enrichmentContext }: { enrichmentContext?: Enrichm
 
       <SectionTitle
         className="items-end"
-        title={<span className="flex items-center gap-2"><Briefcase className="size-5 text-primary" /> Expériences</span>}
-        description="Structure tes expériences et bullets pour un tailoring plus fiable."
+        title="Expériences"
+        description="Tes bullets, écrits par toi. Le moteur choisit les plus pertinents pour chaque offre."
         aside={
           <div className="flex flex-wrap gap-2">
             <CVImportDialog open={importOpen} onOpenChange={setImportOpen} />
@@ -289,7 +305,7 @@ function ExperiencesSection({ enrichmentContext }: { enrichmentContext?: Enrichm
           </div>
         </div>
       ) : (
-        <Accordion type="multiple" className="flex flex-col gap-3">
+        <Accordion type="multiple" className="flex flex-col">
           {sortedExperiences.map(exp => (
             <ExperienceAccordionItem
               key={exp.id}
@@ -313,7 +329,7 @@ function ExperiencesSection({ enrichmentContext }: { enrichmentContext?: Enrichm
           )}
         </SheetContent>
       </Sheet>
-    </Card>
+    </section>
   );
 }
 
@@ -336,9 +352,23 @@ function ExperienceAccordionItem({ experience, onEdit, onOpenPanel }: {
     return warnings;
   }
 
+  const start = experience.startDate ? format(new Date(experience.startDate), "MMM yyyy", { locale: fr }) : "—";
+  const end = experience.endDate ? format(new Date(experience.endDate), "MMM yyyy", { locale: fr }) : "aujourd’hui";
+  const isCurrent = !experience.endDate;
+
   return (
-    <div className="group">
-    <AccordionItem value={experience.id} className="overflow-hidden rounded-2xl border border-border/60 bg-card/80">
+    <div className="group grid grid-cols-1 sm:grid-cols-[96px_28px_minmax(0,1fr)]">
+    {/* Timeline rail (dates + node) */}
+    <div className="hidden pt-[22px] text-right text-sm leading-5 sm:block">
+      <p className={cn("font-medium first-letter:uppercase", isCurrent ? "text-primary" : "text-foreground/80")}>{end}</p>
+      <p className="text-muted-foreground first-letter:uppercase">{start}</p>
+    </div>
+    <div className="relative hidden justify-center sm:flex" aria-hidden>
+      <span className="absolute inset-y-0 w-0.5 rounded-full bg-primary/15 group-first:top-7 group-last:bottom-[calc(100%-28px)]" />
+      <span className={cn("relative mt-[26px] size-3 rounded-full border-2", isCurrent ? "border-primary bg-primary shadow-nav" : "border-border bg-card group-hover:border-primary/60")} />
+    </div>
+    <div className="pb-3">
+    <AccordionItem value={experience.id} className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card transition-[border-color] group-hover:border-primary/25">
       <div className="flex items-center pr-4">
         <AccordionTrigger className="flex-1 px-5 py-5 hover:no-underline data-[state=open]:border-b data-[state=open]:border-border/50 [&>svg]:hidden">
           <div className="flex w-full items-start gap-3">
@@ -350,8 +380,7 @@ function ExperienceAccordionItem({ experience, onEdit, onOpenPanel }: {
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1"><Building className="size-3" /> {experience.company}</span>
                 {(experience as any).contractType && <Badge variant="outline">{(experience as any).contractType}</Badge>}
-                <span className="opacity-40">|</span>
-                <span className="flex items-center gap-1"><Calendar className="size-3" /> {experience.startDate ? format(new Date(experience.startDate), "MMM yyyy") : "N/A"} – {experience.endDate ? format(new Date(experience.endDate), "MMM yyyy") : "Présent"}</span>
+                <span className="flex items-center gap-1 sm:hidden"><Calendar className="size-3" /> {start} – {end}</span>
               </div>
               <span className="text-base font-semibold text-foreground">{experience.title}</span>
               <div className="mt-0.5 flex items-center gap-2">
@@ -365,12 +394,12 @@ function ExperienceAccordionItem({ experience, onEdit, onOpenPanel }: {
             </div>
           </div>
         </AccordionTrigger>
-        <div className="ml-auto flex items-center gap-1 pl-3 opacity-100 transition-opacity md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100">
+        <div className="ml-auto flex shrink-0 items-center gap-1 pl-2 opacity-100 transition-opacity md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100">
           <Button variant="ghost" size="icon-sm" onClick={onEdit} aria-label="Modifier l'expérience">
             <Pencil />
           </Button>
-          <Button variant="outline" size="sm" onClick={() => onOpenPanel()}>
-            <Sparkles /> {bulletCount >= 5 ? "Optimiser" : "Enrichir"}
+          <Button variant="outline" size="sm" onClick={() => onOpenPanel()} aria-label={bulletCount >= 5 ? "Optimiser" : "Enrichir"}>
+            <Sparkles /> <span className="hidden sm:inline">{bulletCount >= 5 ? "Optimiser" : "Enrichir"}</span>
           </Button>
         </div>
       </div>
@@ -419,6 +448,7 @@ function ExperienceAccordionItem({ experience, onEdit, onOpenPanel }: {
         </div>
       </AccordionContent>
     </AccordionItem>
+    </div>
     </div>
   );
 }
@@ -1114,11 +1144,12 @@ function SkillsSection() {
   if (isLoading) return <div className="h-40 flex items-center justify-center text-muted-foreground"><RefreshCw className="w-6 h-6 animate-spin" /></div>;
 
   return (
-    <Card variant="panel" className="flex flex-col gap-6 p-6 md:p-8">
+    <Card variant="flush" className="flex flex-col gap-4 p-6">
       <SectionTitle
+        size="sm"
         className="items-end"
-        title={<span className="flex items-center gap-2"><Zap className="size-5 text-primary" /> Compétences</span>}
-        description="Garde uniquement les compétences utiles pour tes candidatures cibles."
+        title={<span className="flex items-center gap-2"><Zap className="size-4 text-primary" /> Compétences</span>}
+        description="Seulement celles utiles à tes candidatures cibles."
         aside={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={handleExtract} disabled={extracting || atLimit}>
@@ -1430,10 +1461,11 @@ function FormationsSection() {
   if (loading) return null;
 
   return (
-    <Card variant="panel" className="flex flex-col gap-5 p-6 md:p-8">
+    <Card variant="flush" className="flex flex-col gap-4 p-6">
       <SectionTitle
+        size="sm"
         className="items-center"
-        title={<span className="flex items-center gap-2"><GraduationCap className="size-5 text-primary" /> Formation</span>}
+        title={<span className="flex items-center gap-2"><GraduationCap className="size-4 text-primary" /> Formation</span>}
         aside={
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
@@ -1526,10 +1558,11 @@ function LanguagesSection() {
   if (loading) return null;
 
   return (
-    <Card variant="panel" className="flex flex-col gap-5 p-6 md:p-8">
+    <Card variant="flush" className="flex flex-col gap-4 p-6">
       <SectionTitle
+        size="sm"
         className="items-center"
-        title={<span className="flex items-center gap-2"><Globe className="size-5 text-primary" /> Langues</span>}
+        title={<span className="flex items-center gap-2"><Globe className="size-4 text-primary" /> Langues</span>}
         aside={
           <Dialog open={addOpen} onOpenChange={(val) => { setAddOpen(val); if (!val) { setName(""); setLevel(""); } }}>
             <DialogTrigger asChild>

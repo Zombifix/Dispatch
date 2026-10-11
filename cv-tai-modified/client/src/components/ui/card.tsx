@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils"
  * - tint    : help / info panels (light blue tint, e.g. "Repères utiles")
  * - inset   : tile nested inside a card (radius 16, no shadow)
  * - document: the generated CV sheet
+ * - flush   : no chrome — for sections grouped inside one card with dividers
  */
 const cardVariants = cva("text-card-foreground", {
   variants: {
@@ -19,6 +20,7 @@ const cardVariants = cva("text-card-foreground", {
       tint: "rounded-3xl surface-tint",
       inset: "rounded-2xl border border-border/60 bg-card",
       document: "rounded-md border border-border/60 bg-card shadow-document",
+      flush: "", // section living inside another card (separated by dividers, no chrome)
     },
   },
   defaultVariants: { variant: "default" },

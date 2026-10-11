@@ -7,6 +7,8 @@ import { Badge, badgeVariants, type BadgeProps } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Mascot } from "@/components/brand/mascot";
+import { CompanyAvatar } from "@/components/ui/company-avatar";
+import { Eyebrow } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 import { SCORE_THRESHOLDS, scoreTone, type ScoreTone } from "@/lib/score";
 import {
@@ -150,6 +152,21 @@ function DocSectionHeading({ children, className }: { children: React.ReactNode;
     <div className={cn("flex items-center gap-3", className)}>
       <h2 className={DOC_EYEBROW}>{children}</h2>
       <div className="h-px flex-1 bg-border/70" />
+    </div>
+  );
+}
+
+/**
+ * The generated CV as a physical page (full column width, aligned with its toolbar) with a paper shadow and a second sheet
+ * peeking behind — the document is the product, so it gets the stage.
+ */
+function PaperSheet({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative w-full pb-3">
+      <div className="absolute inset-x-5 bottom-0 top-4 rounded-sm border border-border/70 bg-card shadow-card" aria-hidden />
+      <article className="relative min-h-[520px] rounded-sm border border-border/50 bg-card px-7 py-9 shadow-paper md:px-16 md:py-14">
+        {children}
+      </article>
     </div>
   );
 }
@@ -1288,12 +1305,9 @@ function MatchDiagnosisCard({ score, diagnosis, fallbackUsed, scoreBreakdown }: 
   return (
     <AsideCard data-testid="section-match-diagnosis">
       <div className="flex flex-col gap-3 p-4">
-        {/* Score hero */}
-        <div className="flex items-center gap-4">
-          <div title={scoreLabel}>
-            <ScoreRing value={displayScore} size="md" />
-          </div>
-          <div className="min-w-0 flex-1 space-y-1">
+        {/* Verdict head (the page header owns the score number) */}
+        <div className="flex items-start gap-4" title={`${scoreLabel} ${displayScore}%`}>
+          <div className="min-w-0 flex-1 space-y-1.5">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <p className={cn("text-base font-bold leading-5", fitMeta.textColor)}>{fitMeta.label}</p>
               {letterGrade && (
@@ -2399,215 +2413,187 @@ export default function Result() {
   };
 
   const headerFit = displayScore != null ? getFitLabel(displayScore) : null;
-  const toolbarClass = "flex flex-wrap items-center justify-between gap-2 border-b border-border bg-secondary/30 px-4 py-2.5";
+
+  const companyLogoUrl = (run.jobPost?.extractedJson as any)?.companyLogoUrl as string | null | undefined;
+  const jobTitleText = repairMojibake(report?.jobTitle || "") || "CV adapté";
+  const jobCompanyText = repairMojibake(report?.jobCompany || "");
+
+  const documentActions = (
+    <div className="flex items-center gap-2">
+      <Button variant="outline" size="sm" onClick={handleExportAnalysis} title="Exporter l'analyse pour une IA (copie + fichier .md)">
+        {exported ? <Check /> : <FileDown />}
+        {exported ? "Prêt" : "Export IA"}
+      </Button>
+      <Button size="sm" onClick={handleCopy} data-testid="button-copy-sticky">
+        {copied ? <Check /> : <Copy />}
+        {copied ? "Copié !" : "Copier le CV"}
+      </Button>
+    </div>
+  );
 
   return (
     <Layout>
-      <div className="flex flex-col gap-6 animate-in fade-in duration-300">
+      <div className="flex flex-col gap-8 animate-in fade-in duration-300">
 
-        {/* ── PAGE HEADER ── */}
-        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_384px]" data-testid="section-page-header">
-          {/* Gauche : back + score + titre */}
+        {/* ── VERDICT HEADER: who / what on the left, the score as a figure on the right ── */}
+        <header className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between" data-testid="section-page-header">
           <div className="flex min-w-0 items-start gap-4">
-            <Link href="/history">
-              <Button variant="outline" size="icon" className="shrink-0" aria-label="Retour" data-testid="button-back">
+            <Button asChild variant="outline" size="icon" className="mt-1 shrink-0" aria-label="Retour à l'historique" data-testid="button-back">
+              <Link href="/history">
                 <ArrowLeft />
-              </Button>
-            </Link>
-
-            {displayScore != null && headerFit && (
-              <div className="flex shrink-0 flex-col items-center gap-1" data-testid="section-confidence-ring">
-                <ScoreRing value={displayScore} size="lg" valueTestId="text-confidence-value" />
-                <div className="flex flex-col items-center">
-                  <span className={cn("text-2xs font-semibold tracking-tight", headerFit.textColor)} data-testid="text-confidence-label">
-                    {headerFit.label}
-                  </span>
-                  <span className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Pertinence
-                  </span>
-                </div>
-              </div>
-            )}
-
-            <div className="min-w-0 flex-1 space-y-1 pt-1">
-              <h1
-                className="text-xl font-extrabold leading-tight tracking-tight text-foreground"
-                data-testid="text-page-title"
-              >
-                {pageTitle}
+              </Link>
+            </Button>
+            <CompanyAvatar name={jobCompanyText || jobTitleText} logoUrl={companyLogoUrl} className="hidden size-16 rounded-2xl text-2xl sm:flex" />
+            <div className="flex min-w-0 flex-col gap-2">
+              <h1 className="text-3xl font-extrabold leading-tight tracking-[-0.03em] text-foreground md:text-4xl" data-testid="text-page-title">
+                {jobTitleText}
               </h1>
-              {safeDiagnosis?.primaryDiagnosis && (
-                <p className="text-sm text-muted-foreground">
-                  {repairMojibake(safeDiagnosis.primaryDiagnosis)}
-                </p>
-              )}
-              <div className="flex flex-wrap items-center gap-2 pt-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                {jobCompanyText ? <span className="text-base font-medium text-muted-foreground">{jobCompanyText}</span> : null}
                 <Badge variant={modeMeta.variant} className="font-semibold" data-testid="badge-mode">
                   {modeMeta.icon} {modeMeta.label}
                 </Badge>
-                {report?.detectedLanguage && (
-                  <Badge variant="primary" className="font-semibold" data-testid="badge-language">
+                {report?.detectedLanguage ? (
+                  <Badge variant="primary" className="font-semibold uppercase" data-testid="badge-language">
                     <Globe /> {repairMojibake(report.detectedLanguage)}
                   </Badge>
-                )}
-                {report?.jobSeniority && (
-                  <Badge variant="secondary">{repairMojibake(report.jobSeniority)}</Badge>
-                )}
-                {jobUrl && (
+                ) : null}
+                {report?.jobSeniority ? <Badge variant="secondary">{repairMojibake(report.jobSeniority)}</Badge> : null}
+                {jobUrl ? (
                   <a
                     href={jobUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className={cn(badgeVariants({ variant: "outline" }), "transition-colors hover:text-foreground")}
+                    className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
                     data-testid="link-job-posting"
                   >
-                    <ExternalLink /> Voir l'annonce
+                    Voir l’annonce <ExternalLink className="size-3.5" />
                   </a>
-                )}
+                ) : null}
               </div>
             </div>
           </div>
 
-          {/* Droite : Suivi de candidature — largeur = colonne aside */}
-          <Card variant="tint" className="flex items-start justify-between gap-3 rounded-md px-4 pb-4 pt-3">
-            <div className="min-w-0 flex-1 space-y-0.5">
-              <p className="text-sm font-semibold tracking-tight text-foreground">Suivi de candidature</p>
-              <ApplicationTrackerSafe
-                runId={run.id}
-                initialTracking={(run as any).tracking as AppTracking | null}
-              />
+          {displayScore != null && headerFit ? (
+            <div className="flex w-full shrink-0 flex-col gap-2 sm:w-56 lg:pb-1" data-testid="section-confidence-ring">
+              <div className="flex items-baseline justify-between gap-4">
+                <Eyebrow size="sm">Pertinence</Eyebrow>
+                <span className={cn("text-sm font-semibold", headerFit.textColor)} data-testid="text-confidence-label">{headerFit.label}</span>
+              </div>
+              <p className="text-6xl font-extrabold leading-none tracking-[-0.04em] tabular-nums text-foreground">
+                <span data-testid="text-confidence-value">{displayScore}</span>
+                <span className="text-3xl text-muted-foreground">%</span>
+              </p>
+              <ScoreBar value={displayScore} tone={headerFit.tone} className="h-1.5 w-full flex-none" />
             </div>
-            <Mascot variant="thinking" className="size-[94px] shrink-0" />
-          </Card>
-        </div>
+          ) : null}
+        </header>
 
         {/* ── MAIN GRID ── */}
-        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_384px]">
+        <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
 
-          {/* CENTER: CV Document */}
-          <Card variant="document" className="flex min-w-0 flex-col overflow-hidden" data-testid="section-cv-panel">
+          {/* LEFT: the document itself — the product */}
+          <section className="flex min-w-0 flex-col gap-4" data-testid="section-cv-panel">
             {!isEditing ? (
-              <Tabs defaultValue="generated">
-                <div className={toolbarClass}>
-                  <TabsList className="h-auto max-w-full flex-wrap justify-start bg-card/70 sm:h-8">
-                    <TabsTrigger value="generated" data-testid="tab-generated">CV généré</TabsTrigger>
-                    <TabsTrigger value="source" data-testid="tab-source">Super CV utilisé</TabsTrigger>
-                    <TabsTrigger value="job" data-testid="tab-job">Annonce utilisée</TabsTrigger>
+              <Tabs defaultValue="generated" className="flex flex-col gap-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <TabsList className="h-9 bg-card shadow-card">
+                    <TabsTrigger value="generated" className="h-7 px-3 text-sm" data-testid="tab-generated">CV généré</TabsTrigger>
+                    <TabsTrigger value="source" className="h-7 px-3 text-sm" data-testid="tab-source">Super CV utilisé</TabsTrigger>
+                    <TabsTrigger value="job" className="h-7 px-3 text-sm" data-testid="tab-job">Annonce</TabsTrigger>
                   </TabsList>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleStartEdit}
-                    data-testid="button-edit-cv"
-                  >
-                    <Pencil /> Modifier
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="sm" onClick={handleStartEdit} data-testid="button-edit-cv">
+                      <Pencil /> Modifier
+                    </Button>
+                    {documentActions}
+                  </div>
                 </div>
 
                 <TabsContent value="generated" className="mt-0">
-                  <div
-                    className="min-h-[400px] bg-card px-6 py-6 md:px-14 md:py-9"
-                    data-testid="text-cv-output"
-                  >
-                    <FormattedCV text={displayText || "No text generated."} keywords={allKeywords} />
-                  </div>
+                  <PaperSheet>
+                    <div data-testid="text-cv-output">
+                      <FormattedCV text={displayText || "Aucun texte généré."} keywords={allKeywords} />
+                    </div>
+                  </PaperSheet>
                 </TabsContent>
 
                 <TabsContent value="source" className="mt-0">
-                  <div className="min-h-[300px] bg-card px-6 py-8 md:px-14 md:py-9" data-testid="section-source-bullets">
-                    <p className="mb-6 border-b border-border/60 pb-4 text-xs italic text-muted-foreground">
-                      Bullets originaux de ta bibliothèque, avant toute réécriture IA.
-                    </p>
-                    {report?.selectedExperiences?.map((exp: any, i: number) => {
-                      const bullets = (report.selectedBullets || []).filter(
-                        (b: any) => b.experienceTitle === exp.title,
-                      );
-                      return (
-                        <div key={i} className="mb-6">
-                          <div className="mb-2 flex items-center gap-3">
-                            <p className={cn(DOC_EYEBROW, "min-w-0 truncate")}>{exp.title}</p>
-                            <div className="h-px flex-1 bg-border/70" />
-                            <p className="shrink-0 text-2xs text-muted-foreground">{exp.company}</p>
+                  <PaperSheet>
+                    <div data-testid="section-source-bullets">
+                      <p className="mb-6 border-b border-border/60 pb-4 text-sm italic text-muted-foreground">
+                        Bullets originaux de ta bibliothèque, avant toute réécriture IA.
+                      </p>
+                      {report?.selectedExperiences?.map((exp: any, i: number) => {
+                        const bullets = (report.selectedBullets || []).filter(
+                          (b: any) => b.experienceTitle === exp.title,
+                        );
+                        return (
+                          <div key={i} className="mb-6">
+                            <div className="mb-2 flex items-center gap-3">
+                              <p className={cn(DOC_EYEBROW, "min-w-0 truncate")}>{exp.title}</p>
+                              <div className="h-px flex-1 bg-border/70" />
+                              <p className="shrink-0 text-2xs text-muted-foreground">{exp.company}</p>
+                            </div>
+                            <div className="space-y-1.5">
+                              {bullets.map((b: any, j: number) => (
+                                <div key={j} className="flex items-start gap-2.5 pl-0.5">
+                                  <span className="mt-2 size-1 shrink-0 rounded-full bg-foreground/40" />
+                                  <p className={cn(CV_BODY, "text-foreground/90")}>{b.text}</p>
+                                </div>
+                              ))}
+                              {bullets.length === 0 && (
+                                <p className="pl-3 text-xs italic text-muted-foreground">Aucun bullet enregistré.</p>
+                              )}
+                            </div>
                           </div>
-                          <div className="space-y-1.5">
-                            {bullets.map((b: any, j: number) => (
-                              <div key={j} className="flex items-start gap-2.5 pl-0.5">
-                                <span className="mt-2 size-1 shrink-0 rounded-full bg-foreground/40" />
-                                <p className={cn(CV_BODY, "text-foreground/90")}>{b.text}</p>
-                              </div>
-                            ))}
-                            {bullets.length === 0 && (
-                              <p className="pl-3 text-xs italic text-muted-foreground">Aucun bullet enregistré.</p>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {!report?.selectedExperiences?.length && (
-                      <p className="text-sm italic text-muted-foreground">Aucune donnée source disponible.</p>
-                    )}
-                  </div>
+                        );
+                      })}
+                      {!report?.selectedExperiences?.length && (
+                        <p className="text-sm italic text-muted-foreground">Aucune donnée source disponible.</p>
+                      )}
+                    </div>
+                  </PaperSheet>
                 </TabsContent>
 
                 <TabsContent value="job" className="mt-0">
-                  <UsedJobPosting
-                    meta={jobInput}
-                    rawText={run?.jobPost?.rawText || undefined}
-                    url={jobUrl || undefined}
-                    parsedJob={parsedJob}
-                  />
+                  <Card variant="document" className="overflow-hidden">
+                    <UsedJobPosting
+                      meta={jobInput}
+                      rawText={run?.jobPost?.rawText || undefined}
+                      url={jobUrl || undefined}
+                      parsedJob={parsedJob}
+                    />
+                  </Card>
                 </TabsContent>
               </Tabs>
             ) : (
-              <div className={toolbarClass}>
-                <span className="text-xs font-medium text-muted-foreground">Modification en cours</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleCancelEdit}
-                  data-testid="button-cancel-edit"
-                >
-                  <X /> Annuler
-                </Button>
-              </div>
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                    <span className="size-2 rounded-full bg-warning" /> Modification en cours
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="sm" onClick={handleCancelEdit} data-testid="button-cancel-edit">
+                      <X /> Annuler
+                    </Button>
+                    {documentActions}
+                  </div>
+                </div>
+                <PaperSheet>
+                  <Textarea
+                    data-testid="textarea-cv-edit"
+                    value={editedText ?? ""}
+                    onChange={e => setEditedText(e.target.value)}
+                    className="min-h-[600px] resize-y rounded-md border-dashed p-4 text-sm leading-relaxed"
+                  />
+                </PaperSheet>
+              </>
             )}
+          </section>
 
-            {isEditing && (
-              <div className="bg-card p-4">
-                <Textarea
-                  data-testid="textarea-cv-edit"
-                  value={editedText ?? ""}
-                  onChange={e => setEditedText(e.target.value)}
-                  className="min-h-[500px] resize-y rounded-md p-4 font-mono text-sm leading-relaxed"
-                />
-              </div>
-            )}
-          </Card>
-
-          {/* ── RIGHT PANEL ── */}
-          <div className="flex h-fit flex-col gap-3 lg:sticky lg:top-6" data-testid="section-report">
-
-            {/* 1. Copy + Export */}
-            <div className="flex gap-3">
-              <Button
-                onClick={handleCopy}
-                className="flex-1"
-                data-testid="button-copy-sticky"
-              >
-                {copied ? <Check /> : <Copy />}
-                {copied ? "Copié !" : "Copier le CV"}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleExportAnalysis}
-                className="flex-1"
-              >
-                {exported ? <Check /> : <FileDown />}
-                {exported ? "Prêt" : "Export IA"}
-              </Button>
-            </div>
-
-            {/* 2. Fit / score card */}
+          {/* RIGHT: why this score, then what to do about it */}
+          <aside className="flex h-fit flex-col gap-3 lg:sticky lg:top-6" data-testid="section-report">
             {displayScore != null && (
               <MatchDiagnosisCard
                 score={displayScore}
@@ -2617,7 +2603,17 @@ export default function Result() {
               />
             )}
 
-            {/* 3. Keywords / Skills / Conseils */}
+            <AsideCard className="relative overflow-hidden">
+              <div className="flex flex-col gap-3 p-4 pr-24">
+                <Eyebrow size="sm">Suivi de candidature</Eyebrow>
+                <ApplicationTrackerSafe
+                  runId={run.id}
+                  initialTracking={(run as any).tracking as AppTracking | null}
+                />
+              </div>
+              <Mascot variant="thinking" className="absolute right-2 top-2 size-20" />
+            </AsideCard>
+
             <TabbedCoveragePanel
               covered={report?.postRules?.keywordsCovered || []}
               missing={report?.postRules?.keywordsMissing || []}
@@ -2628,14 +2624,12 @@ export default function Result() {
               insight={keyInsight || undefined}
             />
 
-            {/* 4. Renforcer les experiences */}
             <EnrichmentCoaching
               report={report}
               selectedExperienceIds={run.selectedExperienceIds}
               jobTitle={report?.jobTitle}
             />
 
-            {/* 5. Library health */}
             <LibraryHealthAccordion
               selectedBullets={report?.selectedBullets || []}
               selectedExperiences={report?.selectedExperiences || []}
@@ -2643,10 +2637,9 @@ export default function Result() {
               bulletsWithNumbers={report?.postRules?.bulletsWithNumbers ?? 0}
             />
 
-            {/* 6. Debug & metriques — internal only (dev build, or localStorage "dispatch:debug" = "1") */}
+            {/* Debug & métriques — internal only (dev build, or localStorage "dispatch:debug" = "1") */}
             {SHOW_DEBUG ? <DetailsDisclosure report={report || {}} scoreBreakdown={report?.scoreBreakdown} /> : null}
-
-          </div>
+          </aside>
         </div>
 
         {/* ── FOOTER ── */}

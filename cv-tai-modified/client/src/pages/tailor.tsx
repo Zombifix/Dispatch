@@ -193,37 +193,39 @@ function ModeOption({
       aria-checked={active}
       onClick={onClick}
       className={cn(
-        "flex w-full flex-col gap-2.5 rounded-2xl border bg-card p-5 text-left transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/10",
-        active ? "border-primary" : "border-border/70 hover:border-border",
+        "group flex w-full items-start gap-3.5 rounded-2xl border p-4 text-left transition-[border-color,background-color,box-shadow] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/10",
+        active ? "border-primary bg-primary-soft/25 shadow-card" : "border-border/70 bg-card hover:border-primary/30",
       )}
     >
-      <span className="flex w-full items-center justify-between gap-4">
-        <span className="flex items-center gap-2.5 text-base font-medium leading-[17px] text-foreground [&_svg]:size-[19px]">
-          {icon}
-          {title}
-        </span>
-        {badge}
+      <span
+        className={cn(
+          "mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+          active ? "border-primary" : "border-border group-hover:border-primary/40",
+        )}
+        aria-hidden
+      >
+        <span className={cn("size-2 rounded-full bg-primary transition-transform", active ? "scale-100" : "scale-0")} />
       </span>
-      <span className="text-sm font-medium leading-6 text-muted-foreground">{description}</span>
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="flex w-full items-center justify-between gap-3">
+          <span className="flex items-center gap-2 text-base font-semibold text-foreground [&_svg]:size-4">
+            {icon}
+            {title}
+          </span>
+          {badge}
+        </span>
+        <span className="text-sm leading-5 text-muted-foreground">{description}</span>
+      </span>
     </button>
   );
 }
 
 function ResourceRow({ children }: { children: ReactNode }) {
   return (
-    <li className="flex items-start gap-2 text-base leading-6 text-muted-foreground">
-      <ArrowRight className="mt-[3px] size-[17px] shrink-0 text-primary" />
+    <li className="flex items-start gap-2 text-sm leading-5 text-muted-foreground">
+      <ArrowRight className="mt-0.5 size-4 shrink-0 text-primary" />
       <span>{children}</span>
     </li>
-  );
-}
-
-function SummaryRow({ label, value, muted = false }: { label: string; value: string; muted?: boolean }) {
-  return (
-    <div className="flex items-center justify-between text-base leading-6">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={cn("font-medium", muted ? "text-muted-foreground" : "text-foreground")}>{value}</span>
-    </div>
   );
 }
 
@@ -253,60 +255,86 @@ function SubmitButton({ phase, className }: { phase: GenerationPhase; className?
 }
 
 /**
- * Pipeline steps shown while the CV is generated. The first step maps to the real pre-check
- * request; generation steps advance on typical timings (the API answers in a single call) and the
- * last one stays "en cours" until the result arrives — it is never shown as done before that.
+ * The generation pipeline, shown before (what will happen) and during (where we are) a run.
+ * The first step maps to the real pre-check request; generation steps advance on typical timings
+ * (the API answers in a single call) and the last one stays "en cours" until the result arrives —
+ * it is never shown as done before that.
  */
 const GENERATION_STEPS = [
-  { label: "Lecture de l’annonce", after: 0 },
-  { label: "Sélection des expériences", after: 0 },
-  { label: "Rédaction du CV", after: 8 },
-  { label: "Évaluation du résultat", after: 22 },
+  { label: "Lecture de l’annonce", hint: "Titre, attentes, mots-clés ATS, positionnement.", after: 0 },
+  { label: "Sélection des expériences", hint: "Les bullets les plus pertinents de ton Super CV.", after: 0 },
+  { label: "Rédaction du CV", hint: "Reformulation ancrée dans tes preuves, rien d’inventé.", after: 8 },
+  { label: "Évaluation du résultat", hint: "Pertinence, crédibilité et score ATS du document.", after: 22 },
 ] as const;
 
-function GenerationProgress({ phase, compact = false }: { phase: "check" | "generate"; compact?: boolean }) {
+function useElapsed(phase: GenerationPhase) {
   const [elapsed, setElapsed] = useState(0);
-
   useEffect(() => {
     setElapsed(0);
+    if (phase === "idle") return;
     const startedAt = Date.now();
     const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
     return () => window.clearInterval(timer);
   }, [phase]);
+  return elapsed;
+}
 
-  const current =
-    phase === "check"
-      ? 0
-      : GENERATION_STEPS.reduce((index, step, i) => (i > 0 && elapsed >= step.after ? i : index), 1);
+function currentStep(phase: GenerationPhase, elapsed: number) {
+  if (phase === "idle") return -1;
+  if (phase === "check") return 0;
+  return GENERATION_STEPS.reduce((index, step, i) => (i > 0 && elapsed >= step.after ? i : index), 1);
+}
 
-  if (compact) {
-    return (
-      <p className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
-        <span className="size-2 animate-pulse rounded-full bg-primary" />
-        {GENERATION_STEPS[current].label}… <span className="tabular-nums">{elapsed}s</span>
-      </p>
-    );
-  }
+function GenerationStatusLine({ phase }: { phase: GenerationPhase }) {
+  const elapsed = useElapsed(phase);
+  const current = currentStep(phase, elapsed);
+  if (current < 0) return null;
+  return (
+    <p className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+      <span className="size-2 animate-pulse rounded-full bg-primary" />
+      {GENERATION_STEPS[current].label}… <span className="tabular-nums">{elapsed}s</span>
+    </p>
+  );
+}
+
+function PipelineSteps({ phase }: { phase: GenerationPhase }) {
+  const elapsed = useElapsed(phase);
+  const current = currentStep(phase, elapsed);
 
   return (
-    <ol className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/85 px-5 py-5" aria-live="polite">
+    <ol className="relative flex flex-col" aria-live="polite">
       {GENERATION_STEPS.map((step, i) => {
-        const done = i < current;
+        const done = current >= 0 && i < current;
         const active = i === current;
+        const last = i === GENERATION_STEPS.length - 1;
         return (
-          <li key={step.label} className="flex items-center gap-3 text-base leading-6">
+          <li key={step.label} className="relative flex gap-4 pb-5 last:pb-0">
+            {!last ? (
+              <span
+                className={cn(
+                  "absolute left-[13px] top-7 h-[calc(100%-28px)] w-px",
+                  done ? "bg-success" : "bg-border",
+                )}
+                aria-hidden
+              />
+            ) : null}
             <span
               className={cn(
-                "flex size-5 shrink-0 items-center justify-center rounded-full border",
+                "relative z-10 flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums transition-colors",
                 done && "border-success bg-success text-primary-foreground",
-                active && "border-primary",
-                !done && !active && "border-border",
+                active && "border-primary bg-primary text-primary-foreground shadow-nav",
+                !done && !active && "border-border bg-card text-muted-foreground",
               )}
             >
-              {done ? <Check className="size-3" /> : active ? <span className="size-2 animate-pulse rounded-full bg-primary" /> : null}
+              {done ? <Check className="size-3.5" /> : i + 1}
             </span>
-            <span className={cn(done || active ? "text-foreground" : "text-muted-foreground", active && "font-medium")}>{step.label}</span>
-            {active ? <span className="ml-auto text-sm tabular-nums text-muted-foreground">{elapsed}s</span> : null}
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5 pt-1">
+              <span className="flex items-center justify-between gap-2">
+                <span className={cn("text-sm font-semibold", done || active ? "text-foreground" : "text-foreground/80")}>{step.label}</span>
+                {active ? <span className="text-xs font-medium tabular-nums text-primary">{elapsed}s</span> : null}
+              </span>
+              <span className="text-sm leading-5 text-muted-foreground">{step.hint}</span>
+            </span>
           </li>
         );
       })}
@@ -382,7 +410,7 @@ export default function Tailor() {
   const urlWarning = getUrlWarning(url);
   const hasAnnouncement = Boolean(url.trim() || text.trim());
   const verdictMeta = getPrecheckVerdictMeta(pendingConfirm?.verdict);
-  const fastLaneMode = mode === "optimise" ? "Optimisé" : "Fidèle";
+  const fastLaneMode = mode === "optimise" ? "optimisé" : "fidèle";
   const fastLaneAnnouncement = hasAnnouncement ? "Renseignée" : "À ajouter";
   const fastLaneLimits = introMaxChars || bodyMaxChars ? "Personnalisées" : "Auto";
   const hasAdvancedValues = Boolean(introMaxChars || bodyMaxChars || extraContext.trim());
@@ -469,213 +497,185 @@ export default function Tailor() {
   return (
     <>
       <Layout>
-        <div className="flex flex-col gap-6 pb-6">
+        <div className="flex flex-col gap-8 pb-6">
           <PageHeader
             eyebrow="Tailoring"
             title="Adapter ton CV à une offre"
-            description="Colle une offre pour extraire les attentes clés et ajuster ton CV."
+            description="Colle une offre : le moteur sélectionne tes meilleures preuves et ajuste ton CV."
           />
 
-          <form onSubmit={handleSubmit} className="grid gap-7 xl:grid-cols-[minmax(0,1fr)_388px]">
-            <div className="flex min-w-0 flex-col gap-7">
-              {/* ── Annonce cible ─────────────────────────────────────────── */}
-              <Card variant="panel" className="overflow-hidden">
-                <div className="border-b border-border/60 bg-secondary/20 px-6 pb-5 pt-5 md:px-[34px]">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="flex flex-col gap-1">
-                      <Eyebrow>Annonce cible</Eyebrow>
-                      <h2 className="text-2xl font-semibold tracking-[-0.025em] text-foreground">Colle l’offre complète ou un extrait</h2>
-                    </div>
-                    <p className="flex items-center gap-2.5 text-base font-medium text-primary">
-                      <Target className="size-[17px]" />
-                      Plus l’offre est précise, plus l’analyse est fiable
-                    </p>
-                  </div>
+          <form onSubmit={handleSubmit} className="grid items-start gap-8 xl:grid-cols-[minmax(0,1fr)_360px]">
+            {/* ── Composer: one surface, three numbered steps, action at the bottom ── */}
+            <Card variant="panel" className="min-w-0 overflow-hidden">
+              {/* 01 — L'annonce */}
+              <section className="flex flex-col gap-5 p-6 md:p-8" aria-labelledby="step-offer">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <Eyebrow id="step-offer">L’annonce</Eyebrow>
+                  <InputModeSwitch value={inputMode} onChange={setInputMode} />
                 </div>
 
-                <div className="flex flex-col gap-5 p-6 md:p-[34px]">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="flex flex-col gap-2">
-                      <h3 className="text-xl font-semibold leading-6 text-foreground">Ajoute une offre</h3>
-                      <p className="text-base text-muted-foreground">Colle un lien ou du texte pour servir de base à l’adaptation.</p>
-                    </div>
-                    <InputModeSwitch value={inputMode} onChange={setInputMode} />
-                  </div>
+                <div className="flex flex-col gap-1.5">
+                  <h2 className="text-2xl font-bold tracking-[-0.025em] text-foreground md:text-3xl">
+                    {inputMode === "lien" ? "Colle le lien de l’offre" : "Colle le texte de l’offre"}
+                  </h2>
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Target className="size-4 text-primary" />
+                    Plus l’offre est complète, plus l’analyse est fiable.
+                  </p>
+                </div>
 
-                  {inputMode === "lien" ? (
-                    <div className="flex flex-col gap-3">
-                      <div className="relative">
-                        <Link2 className="pointer-events-none absolute left-[15px] top-1/2 size-[19px] -translate-y-1/2 text-muted-foreground" />
-                        <Input
-                          value={url}
-                          onChange={(event) => handleUrlChange(event.target.value)}
-                          placeholder="Colle un lien vers l’annonce LinkedIn, Welcome to the Jungle, etc..."
-                          className="h-[58px] pl-12"
-                        />
-                      </div>
-
-                      {urlWarning ? (
-                        <Notice icon={<AlertTriangle className="mt-0.5 size-4 shrink-0" />}>{urlWarning}</Notice>
-                      ) : null}
-
-                      {urlConverted && !urlWarning ? (
-                        <Notice tone="info" icon={<Info className="mt-0.5 size-4 shrink-0" />}>
-                          URL LinkedIn convertie automatiquement pour une récupération plus stable.
-                        </Notice>
-                      ) : null}
-
-                      {scrapeFailReason ? (
-                        <Notice icon={<AlertTriangle className="mt-0.5 size-4 shrink-0" />}>
-                          {scrapeFailReason} Colle le texte pour continuer.
-                        </Notice>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-3">
-                      {scrapeNotice ? (
-                        <Notice icon={<Info className="mt-0.5 size-4 shrink-0" />}>{scrapeNotice}</Notice>
-                      ) : null}
-
-                      <Textarea
-                        value={text}
-                        onChange={(event) => {
-                          setText(event.target.value);
-                          if (event.target.value) setScrapeNotice(null);
-                        }}
-                        placeholder="Colle le texte brut de l’annonce ici..."
-                        className="min-h-[260px]"
+                {inputMode === "lien" ? (
+                  <div className="flex flex-col gap-3">
+                    <div className="relative">
+                      <Link2 className="pointer-events-none absolute left-5 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={url}
+                        onChange={(event) => handleUrlChange(event.target.value)}
+                        placeholder="https://www.welcometothejungle.com/fr/companies/…"
+                        className="h-16 rounded-2xl bg-secondary/30 pl-14 text-lg focus-visible:bg-card"
+                        aria-label="Lien de l’offre"
                       />
                     </div>
-                  )}
-                </div>
-              </Card>
 
-              {/* ── Mode ─────────────────────────────────────────────────── */}
-              <Card variant="panel" className="flex flex-col gap-5 p-6">
-                <div className="flex flex-col gap-2.5">
-                  <div className="flex items-center gap-2.5">
-                    <SlidersHorizontal className="size-[19px] text-foreground" />
-                    <h3 className="text-xl font-semibold tracking-[-0.025em] text-foreground">Mode</h3>
+                    {urlWarning ? (
+                      <Notice icon={<AlertTriangle className="mt-0.5 size-4 shrink-0" />}>{urlWarning}</Notice>
+                    ) : null}
+
+                    {urlConverted && !urlWarning ? (
+                      <Notice tone="info" icon={<Info className="mt-0.5 size-4 shrink-0" />}>
+                        URL LinkedIn convertie automatiquement pour une récupération plus stable.
+                      </Notice>
+                    ) : null}
+
+                    {scrapeFailReason ? (
+                      <Notice icon={<AlertTriangle className="mt-0.5 size-4 shrink-0" />}>
+                        {scrapeFailReason} Colle le texte pour continuer.
+                      </Notice>
+                    ) : null}
                   </div>
-                  <p className="text-base leading-6 text-muted-foreground">Choisis comment le CV est retravaillé.</p>
-                </div>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {scrapeNotice ? (
+                      <Notice icon={<Info className="mt-0.5 size-4 shrink-0" />}>{scrapeNotice}</Notice>
+                    ) : null}
 
-                <div role="radiogroup" aria-label="Mode de génération" className="grid gap-3.5 md:grid-cols-2">
+                    <Textarea
+                      value={text}
+                      onChange={(event) => {
+                        setText(event.target.value);
+                        if (event.target.value) setScrapeNotice(null);
+                      }}
+                      placeholder="Colle le texte brut de l’annonce ici : intitulé, missions, profil recherché…"
+                      className="min-h-[280px] bg-secondary/30 focus-visible:bg-card"
+                      aria-label="Texte de l’offre"
+                    />
+                  </div>
+                )}
+              </section>
+
+              {/* 02 — Le mode */}
+              <section className="flex flex-col gap-4 border-t border-border/60 p-6 md:px-8" aria-labelledby="step-mode">
+                <Eyebrow id="step-mode">Le mode</Eyebrow>
+                <div role="radiogroup" aria-label="Mode de génération" className="grid gap-3 md:grid-cols-2">
                   <ModeOption
                     title="Optimisé"
-                    description="Le meilleur mode pour candidater vite, sans changer le fond."
+                    description="Reformule pour coller à l’offre, sans changer le fond."
                     icon={<Sparkles className="text-primary" />}
-                    badge={<Badge variant="default" className="font-semibold uppercase tracking-[0.14em]">Recommandé</Badge>}
+                    badge={<Badge variant="primary" className="font-semibold">Recommandé</Badge>}
                     active={mode === "optimise"}
                     onClick={() => setMode("optimise")}
                   />
                   <ModeOption
                     title="Fidèle"
-                    description="Idéal pour voir la sélection brute, sans modification."
+                    description="La sélection brute de tes bullets, sans réécriture."
                     icon={<FileText className="text-muted-foreground" />}
-                    badge={<span className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Brut</span>}
                     active={mode === "fidele"}
                     onClick={() => setMode("fidele")}
                   />
                 </div>
-              </Card>
+              </section>
 
-              {/* ── Options avancées (repliées par défaut) ───────────────── */}
-              <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-                <Card variant="panel" className="overflow-hidden">
-                  <CollapsibleTrigger className="flex w-full items-center justify-between gap-4 p-6 text-left focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-primary/10">
-                    <span className="flex flex-col gap-1">
-                      <span className="text-xl font-semibold tracking-[-0.025em] text-foreground">
-                        Options avancées <span className="font-medium text-muted-foreground">(optionnel)</span>
-                      </span>
-                      <span className="text-base leading-6 text-muted-foreground">
-                        Longueurs et contexte recruteur. Laisse vide pour un résultat automatique.
-                      </span>
-                    </span>
-                    <span className="flex shrink-0 items-center gap-3">
-                      {hasAdvancedValues ? <Badge variant="primary">Personnalisées</Badge> : null}
-                      <ChevronDown className={cn("size-5 text-muted-foreground transition-transform", advancedOpen && "rotate-180")} />
-                    </span>
-                  </CollapsibleTrigger>
+              {/* 03 — Options avancées */}
+              <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen} className="border-t border-border/60">
+                <CollapsibleTrigger className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left transition-colors hover:bg-secondary/30 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-primary/10 md:px-8">
+                  <Eyebrow>Options avancées</Eyebrow>
+                  <span className="flex shrink-0 items-center gap-3">
+                    {hasAdvancedValues ? <Badge variant="primary">Personnalisées</Badge> : null}
+                    <ChevronDown className={cn("size-5 text-muted-foreground transition-transform", advancedOpen && "rotate-180")} />
+                  </span>
+                </CollapsibleTrigger>
 
-                  <CollapsibleContent className="flex flex-col gap-5 px-6 pb-6">
-                    <div className="grid gap-3.5 md:grid-cols-2">
-                      <div className="flex flex-col gap-2.5">
-                        <Label htmlFor="intro-max" className="text-base font-medium text-muted-foreground">Intro (longueur)</Label>
-                        <Input
-                          id="intro-max"
-                          type="number"
-                          value={introMaxChars}
-                          onChange={(event) => setIntroMaxChars(event.target.value)}
-                          placeholder="Ex: 300"
-                        />
-                      </div>
-
-                      <div className="flex flex-col gap-2.5">
-                        <Label htmlFor="body-max" className="text-base font-medium text-muted-foreground">Expériences (longueur)</Label>
-                        <Input
-                          id="body-max"
-                          type="number"
-                          value={bodyMaxChars}
-                          onChange={(event) => setBodyMaxChars(event.target.value)}
-                          placeholder="Ex: 3400"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-2.5">
-                      <Label htmlFor="extra-context" className="text-base font-medium text-muted-foreground">Contexte additionnel</Label>
-                      <Textarea
-                        id="extra-context"
-                        value={extraContext}
-                        onChange={(event) => setExtraContext(event.target.value)}
-                        maxLength={1000}
-                        placeholder="Ex : Le recruteur cherche surtout quelqu'un capable de structurer les pratiques design dans une équipe produit déjà mature."
-                        className="min-h-[140px]"
+                <CollapsibleContent className="flex flex-col gap-5 px-6 pb-6 md:px-8">
+                  <div className="grid gap-3.5 md:grid-cols-2">
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="intro-max" className="text-sm font-medium text-foreground">Intro (longueur)</Label>
+                      <Input
+                        id="intro-max"
+                        type="number"
+                        value={introMaxChars}
+                        onChange={(event) => setIntroMaxChars(event.target.value)}
+                        placeholder="Ex : 300"
                       />
                     </div>
-                  </CollapsibleContent>
-                </Card>
-              </Collapsible>
-            </div>
 
-            {/* ── Aside ──────────────────────────────────────────────────── */}
-            <aside className="flex flex-col gap-5 xl:sticky xl:top-6 xl:self-start">
-              <Card variant="panel" className="hidden flex-col gap-5 border-primary/20 bg-highlight-panel p-6 xl:flex">
-                <div className="flex flex-col gap-2">
-                  <Eyebrow>Fast lane</Eyebrow>
-                  <h2 className="text-3xl font-semibold tracking-[-0.02em] text-foreground">Lancer le tailoring</h2>
-                  <p className="text-base leading-6 text-muted-foreground">Une fois l’annonce collée, tout part d’ici.</p>
-                </div>
-
-                {phase !== "idle" ? (
-                  <GenerationProgress phase={phase} />
-                ) : (
-                  <div className="flex flex-col gap-3.5 rounded-2xl border border-border/60 bg-card/85 px-5 py-[30px]">
-                    <SummaryRow label="Mode" value={fastLaneMode} />
-                    <SummaryRow label="Annonce" value={fastLaneAnnouncement} muted={!hasAnnouncement} />
-                    <SummaryRow label="Limites" value={fastLaneLimits} />
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="body-max" className="text-sm font-medium text-foreground">Expériences (longueur)</Label>
+                      <Input
+                        id="body-max"
+                        type="number"
+                        value={bodyMaxChars}
+                        onChange={(event) => setBodyMaxChars(event.target.value)}
+                        placeholder="Ex : 3400"
+                      />
+                    </div>
                   </div>
-                )}
 
-                <SubmitButton phase={phase} className="w-full" />
-              </Card>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="extra-context" className="text-sm font-medium text-foreground">Contexte additionnel</Label>
+                    <Textarea
+                      id="extra-context"
+                      value={extraContext}
+                      onChange={(event) => setExtraContext(event.target.value)}
+                      maxLength={1000}
+                      placeholder="Ex : Le recruteur cherche surtout quelqu'un capable de structurer les pratiques design dans une équipe produit déjà mature."
+                      className="min-h-[120px]"
+                    />
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
 
-              <Card variant="tint" className="relative min-h-[384px] overflow-hidden p-6">
-                <h3 className="text-xl font-semibold tracking-[-0.025em] text-foreground">Repères utiles</h3>
-                <ul className="mt-4 flex flex-col gap-4">
-                  <ResourceRow>Utilise le texte brut si une annonce est longue, répétitive ou mal scrappée.</ResourceRow>
-                  <ResourceRow>Passe en fidèle si tu veux juger la sélection pure avant toute reformulation.</ResourceRow>
-                  <ResourceRow>Garde les limites en auto si ton template n’impose pas de contrainte stricte.</ResourceRow>
+              {/* Action bar — the CTA lives with the input it acts on */}
+              <div className="hidden items-center justify-between gap-4 border-t border-border/60 px-6 py-5 md:flex md:px-8">
+                <div className="min-w-0">{phase !== "idle" ? <GenerationStatusLine phase={phase} /> : null}</div>
+                <SubmitButton phase={phase} className="shrink-0" />
+              </div>
+            </Card>
+
+            {/* ── Aside: what happens next + tips ── */}
+            <aside className="flex flex-col gap-6 xl:sticky xl:top-6">
+              <section className="flex flex-col gap-5" aria-label="Étapes de génération">
+                <div className="flex flex-col gap-1">
+                  <h2 className="text-xl font-bold tracking-[-0.025em] text-foreground">
+                    {phase === "idle" ? "4 étapes, environ 30 secondes" : "Ton CV se prépare"}
+                  </h2>
+                </div>
+                <PipelineSteps phase={phase} />
+              </section>
+
+              <Card variant="tint" className="relative overflow-hidden p-5 pr-28">
+                <p className="text-sm font-semibold text-foreground">Repères utiles</p>
+                <ul className="mt-3 flex flex-col gap-2.5">
+                  <ResourceRow>Annonce longue ou mal récupérée ? Passe en texte.</ResourceRow>
+                  <ResourceRow>Mode fidèle pour juger la sélection brute.</ResourceRow>
+                  <ResourceRow>Limites en auto si ton template n’impose rien.</ResourceRow>
                 </ul>
-
-                <Mascot variant="megaphone" flip className="absolute bottom-0 right-0 h-[117px] w-[137px] opacity-90" imgClassName="object-cover object-top" />
+                <Mascot variant="megaphone" flip className="absolute -right-2 bottom-0 h-[112px] w-[124px]" imgClassName="object-cover object-top" />
               </Card>
             </aside>
 
-            {/* Mobile / tablet: the action stays reachable without scrolling past the form. */}
-            <div className="sticky bottom-0 z-20 -mx-4 flex flex-col gap-3 border-t border-border/70 bg-background/90 px-4 py-3 backdrop-blur-xl md:-mx-8 md:px-8 xl:hidden">
-              {phase !== "idle" ? <GenerationProgress phase={phase} compact /> : null}
+            {/* Mobile: the action stays reachable without scrolling past the form. */}
+            <div className="sticky bottom-0 z-20 -mx-4 flex flex-col gap-3 border-t border-border/70 bg-background/90 px-4 py-3 backdrop-blur-xl md:hidden">
+              {phase !== "idle" ? <GenerationStatusLine phase={phase} /> : null}
               <SubmitButton phase={phase} className="w-full" />
             </div>
           </form>

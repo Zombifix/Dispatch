@@ -62,7 +62,7 @@ export default function Settings() {
     <Layout>
       <div className="flex flex-col gap-7">
         <PageHeader
-          eyebrow="Paramètres"
+          eyebrow="Compte"
           title="Paramètres"
           description="Configuration de l'application."
         />
@@ -158,7 +158,7 @@ export default function Settings() {
                   value={resetConfirm}
                   onChange={e => setResetConfirm(e.target.value)}
                   placeholder="SUPPRIMER"
-                  className="font-mono"
+                  className="tracking-wide"
                 />
               </div>
             </div>
