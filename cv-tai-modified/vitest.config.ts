@@ -11,5 +11,7 @@ export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
     environment: "node",
+    // Les tests d'intégration partagent une base jetable : exécution séquentielle.
+    fileParallelism: false,
   },
 });

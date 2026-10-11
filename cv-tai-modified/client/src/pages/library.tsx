@@ -17,6 +17,7 @@ import { Plus, Building, Calendar, Pencil, RefreshCw, Briefcase, Zap, Upload, Sp
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Experience } from "@shared/schema";
+import { BulletVariantsEditor, ProfileVariantsEditor } from "@/components/variants-editor";
 
 /* ══════════════════════════════════════════════════════════════════
    DEEP-LINK CONTEXT — read URL params from result page
@@ -146,6 +147,13 @@ export default function Library() {
               </div>
             </div>
           )}
+          </CardContent>
+        </Card>
+
+        {/* ── TITRES ET RÉSUMÉS PAR ANGLE ── */}
+        <Card className="border border-border/70 shadow-sm">
+          <CardContent className="p-5">
+            <ProfileVariantsEditor />
           </CardContent>
         </Card>
 
@@ -801,6 +809,9 @@ function EnrichmentPanel({ experience, initialBulletId, missingKeywords, jobTitl
             <div className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/10 p-3 rounded-lg">
               <span className="font-medium">Suggestion :</span> {editSuggestion}
             </div>
+          )}
+          {editId && (
+            <BulletVariantsEditor bulletId={editId} baseText={editText} />
           )}
         </div>
       )}

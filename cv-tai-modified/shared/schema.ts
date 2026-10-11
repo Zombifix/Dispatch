@@ -63,6 +63,46 @@ export const bullets = pgTable("bullets", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => [index("IDX_bullets_experience_id").on(t.experienceId)]);
 
+// ─── Formulations : un fait (bullet) peut être dit de plusieurs façons ──────
+// selon l'angle de candidature et la langue. Toutes écrites ou validées par l'utilisateur.
+export const ANGLES = ["ic", "lead", "consultant", "manager"] as const;
+export type Angle = typeof ANGLES[number];
+export const CV_LANGUAGES = ["FR", "EN"] as const;
+export type CvLanguage = typeof CV_LANGUAGES[number];
+
+export const bulletVariants = pgTable("bullet_variants", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  bulletId: uuid("bullet_id").references(() => bullets.id, { onDelete: "cascade" }).notNull(),
+  angle: text("angle").notNull(),
+  language: text("language").notNull(),
+  text: text("text").notNull(),
+  // "user" : écrite par l'utilisateur ; "suggested" : proposée par l'IA puis acceptée
+  source: text("source").notNull().default("user"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  unique("bullet_variants_bullet_angle_lang_unique").on(t.bulletId, t.angle, t.language),
+  index("IDX_bullet_variants_bullet_id").on(t.bulletId),
+]);
+
+// Titre et résumé du profil par angle et par langue.
+export const profileVariants = pgTable("profile_variants", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  kind: text("kind").notNull(), // "title" | "summary"
+  angle: text("angle").notNull(),
+  language: text("language").notNull(),
+  text: text("text").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [unique("profile_variants_user_kind_angle_lang_unique").on(t.userId, t.kind, t.angle, t.language)]);
+
+export const variantInputSchema = z.object({
+  angle: z.enum(ANGLES),
+  language: z.enum(CV_LANGUAGES),
+  text: z.string().trim().min(2).max(320),
+});
+export type BulletVariant = typeof bulletVariants.$inferSelect;
+export type ProfileVariant = typeof profileVariants.$inferSelect;
+
 export const skills = pgTable("skills", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),

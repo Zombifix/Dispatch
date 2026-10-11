@@ -20,7 +20,8 @@ import {
 import { createUser, getUserByEmail } from "./auth";
 import { resolveJobInput } from "./job-input";
 import { createLlmClient, completeJson, LLM_MODELS } from "./llm";
-import type { User } from "@shared/schema";
+import { ANGLES, CV_LANGUAGES, variantInputSchema, type User } from "@shared/schema";
+import { validateVariant } from "./engine/variants";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (req.isAuthenticated()) return next();
@@ -398,6 +399,84 @@ ${truncated}`;
     await storage.deleteBullet(uid(req), req.params.id);
     res.status(204).end();
   });
+  // ── Formulations (variantes par angle et par langue) ──
+  app.get("/api/variants", async (req, res) => {
+    const userId = uid(req);
+    const [bulletVariantRows, profileVariantRows] = await Promise.all([
+      storage.getBulletVariants(userId),
+      storage.getProfileVariants(userId),
+    ]);
+    res.json({ bulletVariants: bulletVariantRows, profileVariants: profileVariantRows });
+  });
+
+  app.put("/api/bullets/:id/variants", async (req, res) => {
+    const parsed = variantInputSchema
+      .extend({ text: z.string().trim().min(40).max(220), source: z.enum(["user", "suggested"]).optional() })
+      .safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Formulation invalide (angle, langue, 40 à 220 caractères)." });
+    const row = await storage.upsertBulletVariant(uid(req), req.params.id, parsed.data);
+    if (!row) return res.status(404).json({ message: "Bullet introuvable." });
+    res.json(row);
+  });
+
+  app.delete("/api/bullet-variants/:id", async (req, res) => {
+    await storage.deleteBulletVariant(uid(req), req.params.id);
+    res.status(204).end();
+  });
+
+  // Propose des formulations pour les angles/langues manquants. Rien n'est
+  // enregistré : l'utilisateur garde, corrige ou ignore chaque proposition.
+  app.post("/api/bullets/:id/variants/suggest", async (req, res) => {
+    const userId = uid(req);
+    const wanted = z.object({
+      targets: z.array(z.object({ angle: z.enum(ANGLES), language: z.enum(CV_LANGUAGES) })).min(1).max(8),
+    }).safeParse(req.body);
+    if (!wanted.success) return res.status(400).json({ message: "Cibles invalides." });
+    if (!openai) return res.status(503).json({ message: "Service IA non configuré." });
+    const all = await storage.getAllBullets(userId);
+    const base = all.find(b => b.id === req.params.id);
+    if (!base) return res.status(404).json({ message: "Bullet introuvable." });
+    const exp = await storage.getExperience(userId, base.experienceId);
+    try {
+      const out = await completeJson(openai, {
+        model: LLM_MODELS.fast,
+        schema: z.object({ variants: z.array(z.object({ angle: z.string(), language: z.string(), text: z.string() })) }),
+        temperature: 0,
+        system: `Tu proposes d'autres formulations d'UN fait de CV, sans rien ajouter.
+Règles absolues :
+- Même fait, mêmes chiffres, mêmes outils, mêmes noms propres. Aucun ajout de résultat, de taille d'équipe ou de périmètre.
+- Angle "ic" : met en avant la conception et la livraison. "lead" : la coordination, les standards, la vision (sans inventer de management). "consultant" : l'accompagnement et la structuration des pratiques. "manager" : le management, seulement si le fait le prouve, sinon reformule sobrement.
+- Langue demandée : FR = français, EN = anglais. Une phrase, 60 à 200 caractères, commence par un verbe d'action, pas de formule creuse.`,
+        user: `Poste : ${exp?.title || ""} chez ${exp?.company || ""}${exp?.description ? `\nContexte : ${exp.description.slice(0, 300)}` : ""}
+Fait : ${base.text}
+Formulations demandées : ${wanted.data.targets.map(t => `${t.angle}/${t.language}`).join(", ")}
+Réponds en JSON : {"variants": [{"angle": "...", "language": "FR|EN", "text": "..."}]}`,
+      });
+      const allowed = `${exp?.title || ""} ${exp?.company || ""} ${exp?.description || ""}`;
+      const proposals = out.variants
+        .filter(v => wanted.data.targets.some(t => t.angle === v.angle && t.language === v.language))
+        .map(v => ({ ...v, check: validateVariant(base.text, v.text, { allowedVocabulary: allowed }) }));
+      res.json({
+        proposals: proposals.filter(p => p.check.ok).map(({ check, ...p }) => p),
+        rejected: proposals.filter(p => !p.check.ok).map(p => ({ angle: p.angle, language: p.language, reason: p.check.reason })),
+      });
+    } catch (err: any) {
+      console.error("[VARIANTS] Suggest error:", err.message);
+      res.status(502).json({ message: "Proposition indisponible pour le moment." });
+    }
+  });
+
+  app.put("/api/profile/variants", async (req, res) => {
+    const parsed = variantInputSchema.extend({ kind: z.enum(["title", "summary"]) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Variante de profil invalide." });
+    res.json(await storage.upsertProfileVariant(uid(req), parsed.data));
+  });
+
+  app.delete("/api/profile-variants/:id", async (req, res) => {
+    await storage.deleteProfileVariant(uid(req), req.params.id);
+    res.status(204).end();
+  });
+
   // All unique tags across all bullets (for autocomplete), sorted by frequency desc
   app.get("/api/bullets/tags", async (req, res) => {
     const allBullets = await storage.getAllBullets(uid(req));
@@ -569,13 +648,15 @@ Reponds UNIQUEMENT en JSON valide :
   app.get("/api/settings/export", requireAuth, async (req, res) => {
     try {
       const userId = uid(req);
-      const [userProfile, userExperiences, userSkills, userFormations, userLanguages, userRuns] = await Promise.all([
+      const [userProfile, userExperiences, userSkills, userFormations, userLanguages, userRuns, userBulletVariants, userProfileVariants] = await Promise.all([
         storage.getProfile(userId),
         storage.getExperiences(userId),
         storage.getSkills(userId),
         storage.getFormations(userId),
         storage.getLanguages(userId),
         storage.getRuns(userId),
+        storage.getBulletVariants(userId),
+        storage.getProfileVariants(userId),
       ]);
       const experiencesWithBullets = await Promise.all(
         userExperiences.map(async (exp) => ({
@@ -587,6 +668,8 @@ Reponds UNIQUEMENT en JSON valide :
         exportedAt: new Date().toISOString(),
         profile: userProfile || null,
         experiences: experiencesWithBullets,
+        bulletVariants: userBulletVariants,
+        profileVariants: userProfileVariants,
         skills: userSkills,
         formations: userFormations,
         languages: userLanguages,
@@ -618,6 +701,7 @@ Reponds UNIQUEMENT en JSON valide :
         await client.query("DELETE FROM formations WHERE user_id = $1", [userId]);
         await client.query("DELETE FROM languages WHERE user_id = $1", [userId]);
         await client.query("DELETE FROM profile WHERE user_id = $1", [userId]);
+        await client.query("DELETE FROM profile_variants WHERE user_id = $1", [userId]);
         console.log("[SETTINGS] Data reset for user", userId);
         res.json({ success: true });
       } finally {

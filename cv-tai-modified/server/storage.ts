@@ -2,6 +2,8 @@ import { db } from "./db";
 import { eq, desc, and, isNotNull } from "drizzle-orm";
 import {
   profile, experiences, bullets, skills, formations, languages, jobPosts, runs,
+  bulletVariants, profileVariants,
+  type BulletVariant, type ProfileVariant,
   type Profile, type InsertProfile,
   type Experience, type InsertExperience,
   type Bullet, type BulletRow, type InsertBullet,
@@ -48,6 +50,14 @@ export interface IStorage {
   getAllBullets(userId: number): Promise<PublicBullet[]>;
   getBulletEmbeddings(userId: number): Promise<Map<string, { key: string; vector: number[] }>>;
   saveBulletEmbeddings(entries: { id: string; key: string; vector: number[] }[]): Promise<void>;
+
+  // Formulations (variantes)
+  getBulletVariants(userId: number): Promise<BulletVariant[]>;
+  upsertBulletVariant(userId: number, bulletId: string, v: { angle: string; language: string; text: string; source?: string }): Promise<BulletVariant | undefined>;
+  deleteBulletVariant(userId: number, id: string): Promise<void>;
+  getProfileVariants(userId: number): Promise<ProfileVariant[]>;
+  upsertProfileVariant(userId: number, v: { kind: string; angle: string; language: string; text: string }): Promise<ProfileVariant>;
+  deleteProfileVariant(userId: number, id: string): Promise<void>;
 
   // Skills
   getSkills(userId: number): Promise<Skill[]>;
@@ -176,6 +186,49 @@ export class DatabaseStorage implements IStorage {
     for (const e of entries) {
       await db.update(bullets).set({ embedding: e.vector, embeddingKey: e.key }).where(eq(bullets.id, e.id));
     }
+  }
+
+  // Formulations (variantes)
+  async getBulletVariants(userId: number) {
+    const rows = await db.select({ v: bulletVariants }).from(bulletVariants)
+      .innerJoin(bullets, eq(bulletVariants.bulletId, bullets.id))
+      .innerJoin(experiences, eq(bullets.experienceId, experiences.id))
+      .where(eq(experiences.userId, userId));
+    return rows.map(r => r.v);
+  }
+  async upsertBulletVariant(userId: number, bulletId: string, v: { angle: string; language: string; text: string; source?: string }) {
+    const [owned] = await db.select({ id: bullets.id }).from(bullets)
+      .innerJoin(experiences, eq(bullets.experienceId, experiences.id))
+      .where(and(eq(bullets.id, bulletId), eq(experiences.userId, userId)));
+    if (!owned) return undefined;
+    const [row] = await db.insert(bulletVariants)
+      .values({ bulletId, angle: v.angle, language: v.language, text: v.text, source: v.source || "user" })
+      .onConflictDoUpdate({
+        target: [bulletVariants.bulletId, bulletVariants.angle, bulletVariants.language],
+        set: { text: v.text, source: v.source || "user", updatedAt: new Date() },
+      })
+      .returning();
+    return row;
+  }
+  async deleteBulletVariant(userId: number, id: string) {
+    const owned = (await this.getBulletVariants(userId)).some(v => v.id === id);
+    if (owned) await db.delete(bulletVariants).where(eq(bulletVariants.id, id));
+  }
+  async getProfileVariants(userId: number) {
+    return await db.select().from(profileVariants).where(eq(profileVariants.userId, userId));
+  }
+  async upsertProfileVariant(userId: number, v: { kind: string; angle: string; language: string; text: string }) {
+    const [row] = await db.insert(profileVariants)
+      .values({ userId, ...v })
+      .onConflictDoUpdate({
+        target: [profileVariants.userId, profileVariants.kind, profileVariants.angle, profileVariants.language],
+        set: { text: v.text, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
+  }
+  async deleteProfileVariant(userId: number, id: string) {
+    await db.delete(profileVariants).where(and(eq(profileVariants.id, id), eq(profileVariants.userId, userId)));
   }
 
   // Skills
